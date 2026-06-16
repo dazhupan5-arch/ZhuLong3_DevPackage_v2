@@ -1,0 +1,162 @@
+{
+  "total_bars": 672465,
+  "should_trade_pct": 9.96,
+  "action_counts": {
+    "hold": 605489,
+    "long": 35193,
+    "short": 31783
+  },
+  "action_pct": {
+    "hold": 90.04,
+    "long": 5.233,
+    "short": 4.726
+  },
+  "config": {
+    "max_support_dist": 0.5,
+    "max_resistance_dist": 0.5,
+    "min_support_strength": 0.3,
+    "min_resistance_strength": 0.3,
+    "min_resistance_dist_long": 0.35,
+    "min_support_dist_short": 0.35,
+    "pos_range_long_max": 0.35,
+    "pos_range_short_min": 0.65,
+    "ranging_block_long_above": 0.6,
+    "ranging_block_short_below": 0.4,
+    "sl_buffer_atr": 0.3,
+    "sl_floor_atr": 1.0,
+    "sl_cap_atr": 2.5,
+    "tp_buffer_atr": 0.25,
+    "tp_floor_atr": 1.5,
+    "tp_cap_atr": 4.0,
+    "max_hold_bars": 48,
+    "min_rr": 1.2
+  },
+  "feature_layout": [
+    "m5_trend",
+    "m5_adx",
+    "m5_price_to_ema",
+    "m5_support_dist",
+    "m5_resistance_dist",
+    "m5_support_strength",
+    "m5_resistance_strength",
+    "double_top",
+    "double_bottom",
+    "head_shoulders_top",
+    "inverse_head_shoulders",
+    "rsi_bull_div",
+    "rsi_bear_div",
+    "macd_bull_div",
+    "macd_bear_div",
+    "volume_ratio",
+    "volatility_regime",
+    "hour_sin",
+    "hour_cos",
+    "dow_sin",
+    "dow_cos",
+    "m15_trend",
+    "m15_adx",
+    "h1_trend",
+    "h1_adx",
+    "h1_rsi",
+    "h4_trend",
+    "mtf_trend_align",
+    "h1_support_dist",
+    "h4_resistance_dist"
+  ],
+  "numba": true,
+  "long_labeled": {
+    "count": 35193,
+    "mean_support_dist": 0.9556,
+    "mean_resistance_dist": 11.8019,
+    "mean_pos_in_range": 0.1037,
+    "mean_sl_atr_mult": 1.2749,
+    "mean_tp_atr_mult": 3.6466
+  },
+  "short_labeled": {
+    "count": 31783,
+    "mean_support_dist": 11.0175,
+    "mean_resistance_dist": 0.905,
+    "mean_pos_in_range": 0.9008,
+    "mean_sl_atr_mult": 1.2486,
+    "mean_tp_atr_mult": 3.4192
+  },
+  "by_regime": {
+    "ranging": {
+      "bars": 672465,
+      "should_trade_pct": 9.96,
+      "long": 35193,
+      "short": 31783
+    }
+  },
+  "candidates": {
+    "long_candidate_pct": 38.942,
+    "short_candidate_pct": 41.245,
+    "long_cand_to_label_pct": 13.439,
+    "short_cand_to_label_pct": 11.459
+  },
+  "block_reasons": {
+    "not_candidate": 133229,
+    "bad_atr": 0,
+    "barrier_fail": 472212
+  },
+  "vs_legacy_fixed_barrier": {
+    "legacy_should_trade_pct": 47.545,
+    "legacy_long": 162826,
+    "legacy_short": 156900,
+    "location_only_long": 8863,
+    "location_only_short": 8518,
+    "legacy_only_long": 136496,
+    "legacy_only_short": 133635
+  },
+  "year_2024": {
+    "bars": 59427,
+    "should_trade_pct": 9.353,
+    "long": 3117,
+    "short": 2441
+  },
+  "year_2025": {
+    "bars": 69211,
+    "should_trade_pct": 11.023,
+    "long": 3585,
+    "short": 4044
+  },
+  "generated_at": "2026-06-16T12:06:28.698547+00:00",
+  "source_npz": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\clean\\kn2_training_v16.npz",
+  "elapsed_sec": 4.22,
+  "replay_cases": [
+    {
+      "name": "replay_ranging_top_chase_long",
+      "note": "类似 2026-06-16 4339 震荡区间上沿追多",
+      "regime": "ranging",
+      "pos_in_range": 0.72,
+      "m5_support_dist": 1.2,
+      "m5_resistance_dist": 0.25,
+      "m5_trend": 0.05,
+      "long_candidate": false,
+      "short_candidate": true,
+      "candidate_stats": {
+        "long_candidate": 0,
+        "short_candidate": 1,
+        "both_candidate": 0
+      },
+      "verdict": "would_block_long"
+    },
+    {
+      "name": "replay_ranging_bottom_long",
+      "note": "震荡区间下沿靠近支撑做多",
+      "regime": "ranging",
+      "pos_in_range": 0.28,
+      "m5_support_dist": 0.35,
+      "m5_resistance_dist": 1.8,
+      "m5_trend": 0.08,
+      "long_candidate": true,
+      "short_candidate": false,
+      "candidate_stats": {
+        "long_candidate": 1,
+        "short_candidate": 0,
+        "both_candidate": 0
+      },
+      "verdict": "long_candidate"
+    }
+  ]
+}

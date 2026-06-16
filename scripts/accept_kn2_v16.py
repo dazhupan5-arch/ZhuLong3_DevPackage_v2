@@ -25,8 +25,8 @@ import torch  # noqa: F401 — 须在 numpy/pandas 之前
 import numpy as np
 import pandas as pd
 
+from zhulong.agent.kn2_location_labels import load_kn2_v16_labels
 from zhulong.agent.knowledge_net_kn2 import KN2Inference, encode_position_state
-from zhulong.agent.trading_env_kn2 import generate_kn2_training_labels
 from zhulong.agent.training_utils import load_npz
 from zhulong.strategies.indicators import atr_series
 
@@ -84,7 +84,12 @@ def _eval_val_sequences(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="models/kn2_trader_v16.pth")
-    parser.add_argument("--npz", default="data/clean/kn2_training_v16.npz")
+    parser.add_argument("--npz", default="data/clean/kn2_training_v16_location.npz")
+    parser.add_argument(
+        "--label-mode",
+        choices=("auto", "location", "legacy"),
+        default="auto",
+    )
     parser.add_argument("--max-val-bars", type=int, default=20000, help="0=all val bars")
     args = parser.parse_args()
 
@@ -153,10 +158,20 @@ def main() -> int:
         val_mask = np.zeros(n, dtype=bool)
         val_mask[int(n * 0.85) :] = True
 
-    print(f"Generating labels for validation ({val_mask.sum():,} bars)...", flush=True)
+    print(f"Loading labels for validation ({val_mask.sum():,} bars, mode={args.label_mode})...", flush=True)
     t0 = time.perf_counter()
-    labels = generate_kn2_training_labels(df, market_feat, progress_every=0)
-    print(f"labels done in {time.perf_counter() - t0:.1f}s", flush=True)
+    labels, label_version = load_kn2_v16_labels(
+        data,
+        df.reset_index(drop=True),
+        market_feat,
+        label_mode=args.label_mode,
+    )
+    report["label_version"] = label_version
+    print(
+        f"labels done in {time.perf_counter() - t0:.1f}s | "
+        f"should_trade={labels['should_trade'].mean() * 100:.1f}%",
+        flush=True,
+    )
 
     val_idx = np.where(val_mask)[0]
     if args.max_val_bars > 0 and len(val_idx) > args.max_val_bars:

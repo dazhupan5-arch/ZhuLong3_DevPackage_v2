@@ -26,14 +26,17 @@ import numpy as np
 import pandas as pd
 
 from zhulong.agent.knowledge_net_kn2 import encode_position_state, train_kn2_end_to_end, train_kn2_fast
-from zhulong.agent.trading_env_kn2 import _KN2_LABELS_FAST, generate_kn2_training_labels
+from zhulong.agent.kn2_location_labels import load_kn2_v16_labels
 from zhulong.agent.training_utils import load_npz
 from zhulong.strategies.indicators import atr_series
 from zhulong.utils.device import print_gpu_status
 
 KN2_V16_MARKET_DIM = 65
-# 压低 hold、抬高 long/short，避免全 hold 塌缩（上一版无 class_weights 导致验收失败）
-KN2_V16_CLASS_WEIGHTS = [0.85, 2.5, 2.5, 1.0, 1.0, 1.0]
+DEFAULT_NPZ_LOCATION = "data/clean/kn2_training_v16_location.npz"
+DEFAULT_NPZ_LEGACY = "data/clean/kn2_training_v16.npz"
+# 位置标签 hold~90%：略抬 long/short，避免 should_trade 头塌缩
+KN2_V16_CLASS_WEIGHTS_LOCATION = [0.75, 2.8, 2.8, 1.0, 1.0, 1.0]
+KN2_V16_CLASS_WEIGHTS_LEGACY = [0.85, 2.5, 2.5, 1.0, 1.0, 1.0]
 
 
 def _parse_class_weights(raw: str) -> list[float]:
@@ -47,33 +50,48 @@ def _parse_class_weights(raw: str) -> list[float]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--npz", default="data/clean/kn2_training_v16.npz")
+    parser.add_argument(
+        "--npz",
+        default=DEFAULT_NPZ_LOCATION,
+        help="训练 NPZ；位置标签用 kn2_training_v16_location.npz",
+    )
+    parser.add_argument(
+        "--label-mode",
+        choices=("auto", "location", "legacy"),
+        default="auto",
+        help="auto=NPZ 含 loc_* 则用位置标签",
+    )
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--patience", type=int, default=25)
     parser.add_argument("--lr", type=float, default=0.0004)
     parser.add_argument("--hidden-dim", type=int, default=256)
     parser.add_argument("--output", default="models/kn2_trader_v16.pth")
-    parser.add_argument("--mode", choices=("fast", "e2e"), default="fast",
-                        help="fast=batched GRU (GPU-friendly); e2e=slow bar-by-bar")
-    parser.add_argument("--batch-size", type=int, default=32,
-                        help="sequences per batch (fast mode only; RTX 3050: 32-64)")
+    parser.add_argument(
+        "--mode",
+        choices=("fast", "e2e"),
+        default="fast",
+        help="fast=batched GRU (GPU-friendly); e2e=slow bar-by-bar",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="sequences per batch (fast mode only; RTX 3050: 32-64)",
+    )
     parser.add_argument("--device", default="auto", help="auto|cuda|cpu")
     parser.add_argument(
         "--class-weights",
-        default=",".join(str(x) for x in KN2_V16_CLASS_WEIGHTS),
-        help="hold,long,short[,...] 共 3 或 6 维；默认压低 hold",
+        default="",
+        help="hold,long,short[,...]；空则按 label 类型自动选择",
     )
     args = parser.parse_args()
 
-    try:
-        class_weights = _parse_class_weights(args.class_weights)
-    except ValueError as ex:
-        print(ex)
-        return 1
-
     npz_path = _ROOT / args.npz
     if not npz_path.is_file():
-        print(f"缺少 {npz_path}，请先运行 prepare_kn2_v16_data.py")
+        print(f"缺少 {npz_path}")
+        if args.label_mode in ("auto", "location"):
+            print("  GPU 机: git pull && git lfs pull")
+            print("  或本地: py -3 scripts/prepare_kn2_v16_location_labels.py")
         return 1
 
     print_gpu_status()
@@ -111,16 +129,30 @@ def main() -> int:
         val_idx = np.asarray(val_mask, dtype=bool)
 
     print(f"train={train_idx.sum():,} val={val_idx.sum():,}")
-    print(f"class_weights={class_weights}")
 
-    print(f"Generating KN2 labels (fast={'numba' if _KN2_LABELS_FAST else 'python'})...")
+    print(f"Loading KN2 labels (mode={args.label_mode})...")
     t_label = time.perf_counter()
-    labels = generate_kn2_training_labels(df, market_feat, progress_every=50000 if not _KN2_LABELS_FAST else 0)
+    labels, label_version = load_kn2_v16_labels(
+        data,
+        df.reset_index(drop=True),
+        market_feat,
+        label_mode=args.label_mode,
+    )
     print(
         f"labels done in {time.perf_counter() - t_label:.1f}s | "
+        f"version={label_version} | "
         f"should_trade={labels['should_trade'].mean() * 100:.1f}% | "
         f"actions={np.bincount(labels['action'], minlength=6).tolist()}"
     )
+
+    if args.class_weights.strip():
+        class_weights = _parse_class_weights(args.class_weights)
+    elif label_version.startswith("location"):
+        class_weights = KN2_V16_CLASS_WEIGHTS_LOCATION
+    else:
+        class_weights = KN2_V16_CLASS_WEIGHTS_LEGACY
+    print(f"class_weights={class_weights}")
+
     pos_states = np.tile(encode_position_state(), (n, 1)).astype(np.float32)
 
     out_path = _ROOT / args.output
@@ -170,6 +202,9 @@ def main() -> int:
     report = {
         "architecture": "kn2_v16",
         "market_dim": md,
+        "label_version": label_version,
+        "label_mode": args.label_mode,
+        "npz": str(npz_path),
         "training_rows": int(train_idx.sum()),
         "val_rows": int(val_idx.sum()),
         "epochs_requested": args.epochs,
@@ -177,6 +212,7 @@ def main() -> int:
         "batch_size": args.batch_size if args.mode == "fast" else None,
         "device_requested": args.device,
         "class_weights": class_weights,
+        "label_should_trade_pct": round(float(labels["should_trade"].mean()) * 100, 3),
         "elapsed_sec": round(elapsed, 1),
         **stats,
     }
