@@ -1,0 +1,169 @@
+{
+  "total_bars": 672465,
+  "config": {
+    "max_support_dist": 0.5,
+    "max_resistance_dist": 0.5,
+    "min_support_strength": 0.3,
+    "min_resistance_strength": 0.3,
+    "min_resistance_dist_long": 0.35,
+    "min_support_dist_short": 0.35,
+    "pos_range_long_max": 0.35,
+    "pos_range_short_min": 0.65,
+    "ranging_block_long_above": 0.6,
+    "ranging_block_short_below": 0.4,
+    "sl_buffer_atr": 0.3,
+    "sl_floor_atr": 1.0,
+    "sl_cap_atr": 2.5,
+    "tp_buffer_atr": 0.25,
+    "tp_floor_atr": 1.5,
+    "tp_cap_atr": 4.0,
+    "max_hold_bars": 48,
+    "min_rr": 1.2
+  },
+  "legacy_counts": {
+    "short": 58806,
+    "flat": 550833,
+    "long": 62826
+  },
+  "gated_counts": {
+    "short": 24212,
+    "flat": 623091,
+    "long": 25162
+  },
+  "legacy_pct": {
+    "short": 8.745,
+    "flat": 81.913,
+    "long": 9.343
+  },
+  "gated_pct": {
+    "short": 3.6,
+    "flat": 92.658,
+    "long": 3.742
+  },
+  "filtered_long": 37664,
+  "filtered_short": 34594,
+  "long_candidate_pct": 38.942,
+  "short_candidate_pct": 41.245,
+  "by_regime": {
+    "ranging": {
+      "bars": 672465,
+      "legacy_long": 62826,
+      "gated_long": 25162,
+      "legacy_short": 58806,
+      "gated_short": 24212
+    }
+  },
+  "gate_reasons": {
+    "blocked_long": 37664,
+    "blocked_short": 34594
+  },
+  "generated_at": "2026-06-16T15:09:52.085661+00:00",
+  "source_npz": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\clean\\training_horizon_v16.npz",
+  "elapsed_sec": 3.78,
+  "replay_cases": [
+    {
+      "name": "replay_ranging_top_chase_long",
+      "note": "震荡高位 legacy long 应被门控为 flat",
+      "regime": "ranging",
+      "pos_in_range": 0.72,
+      "m5_support_dist": 1.2,
+      "m5_resistance_dist": 0.25,
+      "m5_trend": 0.05,
+      "long_candidate": false,
+      "short_candidate": true,
+      "candidate_stats": {
+        "long_candidate": 0,
+        "short_candidate": 1,
+        "both_candidate": 0
+      },
+      "verdict": "would_block_long"
+    },
+    {
+      "name": "replay_ranging_bottom_long",
+      "note": "震荡低位 long 候选保留",
+      "regime": "ranging",
+      "pos_in_range": 0.28,
+      "m5_support_dist": 0.35,
+      "m5_resistance_dist": 1.8,
+      "m5_trend": 0.08,
+      "long_candidate": true,
+      "short_candidate": false,
+      "candidate_stats": {
+        "long_candidate": 1,
+        "short_candidate": 0,
+        "both_candidate": 0
+      },
+      "verdict": "long_candidate"
+    }
+  ],
+  "year_2016": {
+    "bars": 69590,
+    "legacy_long": 7012,
+    "gated_long": 2772,
+    "legacy_short": 7093,
+    "gated_short": 2823
+  },
+  "year_2017": {
+    "bars": 69279,
+    "legacy_long": 3409,
+    "gated_long": 1364,
+    "legacy_short": 3286,
+    "gated_short": 1228
+  },
+  "year_2018": {
+    "bars": 67300,
+    "legacy_long": 3243,
+    "gated_long": 1250,
+    "legacy_short": 3181,
+    "gated_short": 1209
+  },
+  "year_2019": {
+    "bars": 63876,
+    "legacy_long": 4462,
+    "gated_long": 1761,
+    "legacy_short": 4148,
+    "gated_short": 1728
+  },
+  "year_2020": {
+    "bars": 69046,
+    "legacy_long": 9407,
+    "gated_long": 3785,
+    "legacy_short": 8567,
+    "gated_short": 3684
+  },
+  "year_2021": {
+    "bars": 69125,
+    "legacy_long": 5892,
+    "gated_long": 2456,
+    "legacy_short": 5748,
+    "gated_short": 2287
+  },
+  "year_2022": {
+    "bars": 69507,
+    "legacy_long": 6966,
+    "gated_long": 2880,
+    "legacy_short": 6820,
+    "gated_short": 2803
+  },
+  "year_2023": {
+    "bars": 66104,
+    "legacy_long": 5109,
+    "gated_long": 2000,
+    "legacy_short": 4981,
+    "gated_short": 2038
+  },
+  "year_2024": {
+    "bars": 59427,
+    "legacy_long": 6836,
+    "gated_long": 2751,
+    "legacy_short": 6375,
+    "gated_short": 2629
+  },
+  "year_2025": {
+    "bars": 69211,
+    "legacy_long": 10490,
+    "gated_long": 4143,
+    "legacy_short": 8607,
+    "gated_short": 3783
+  }
+}

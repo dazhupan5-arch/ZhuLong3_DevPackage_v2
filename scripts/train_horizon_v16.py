@@ -16,6 +16,7 @@ if str(_ROOT) not in sys.path:
 
 import torch  # noqa: F401
 
+from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
 from zhulong.agent.knowledge_net import train_knowledge_net
 from zhulong.agent.training_utils import ensure_logs_dir, load_npz, signed_to_class
 from zhulong.utils.device import print_gpu_status
@@ -26,7 +27,17 @@ MIN_MACRO_F1 = 0.45
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
+    parser.add_argument(
+        "--npz",
+        default="data/clean/training_horizon_v16_location.npz",
+        help="训练 NPZ（P4 默认 location 版）",
+    )
+    parser.add_argument(
+        "--label-mode",
+        default="auto",
+        choices=("auto", "legacy", "location"),
+        help="auto=NPZ 含 loc_horizon_version 则用位置门控标签",
+    )
     parser.add_argument("--lr", type=float, default=0.0005)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--smote-ratio", type=float, default=0.5)
@@ -62,9 +73,10 @@ def main() -> int:
     print_gpu_status()
     data = load_npz(npz_path)
     x = data["struct"]
-    y = signed_to_class(data["labels"])
+    y_signed, label_version = resolve_horizon_training_labels(data, label_mode=args.label_mode)
+    y = signed_to_class(y_signed)
     times = data.get("time")
-    print(f"train samples: {len(x)} x {x.shape[1]}")
+    print(f"train samples: {len(x)} x {x.shape[1]} label_mode={args.label_mode} ({label_version})")
 
     out_model = _ROOT / args.out
     out_scaler = out_model.with_name("horizon_v16_scaler.pkl")
@@ -117,6 +129,8 @@ def main() -> int:
         "temporal_val": args.temporal_val,
         "epochs_requested": args.epochs,
         "retrain_tag": args.log_suffix or None,
+        "label_mode": args.label_mode,
+        "label_version": label_version,
         "passed": bool(stats.get("macro_f1", 0) >= MIN_MACRO_F1),
     }
     out_model.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
