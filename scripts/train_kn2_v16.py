@@ -32,6 +32,17 @@ from zhulong.strategies.indicators import atr_series
 from zhulong.utils.device import print_gpu_status
 
 KN2_V16_MARKET_DIM = 65
+# 压低 hold、抬高 long/short，避免全 hold 塌缩（上一版无 class_weights 导致验收失败）
+KN2_V16_CLASS_WEIGHTS = [0.85, 2.5, 2.5, 1.0, 1.0, 1.0]
+
+
+def _parse_class_weights(raw: str) -> list[float]:
+    parts = [float(x.strip()) for x in raw.split(",") if x.strip()]
+    if len(parts) not in (3, 6):
+        raise ValueError("class-weights 需要 3 或 6 个逗号分隔浮点数")
+    if len(parts) == 3:
+        parts = parts + [1.0, 1.0, 1.0]
+    return parts
 
 
 def main() -> int:
@@ -47,7 +58,18 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=32,
                         help="sequences per batch (fast mode only; RTX 3050: 32-64)")
     parser.add_argument("--device", default="auto", help="auto|cuda|cpu")
+    parser.add_argument(
+        "--class-weights",
+        default=",".join(str(x) for x in KN2_V16_CLASS_WEIGHTS),
+        help="hold,long,short[,...] 共 3 或 6 维；默认压低 hold",
+    )
     args = parser.parse_args()
+
+    try:
+        class_weights = _parse_class_weights(args.class_weights)
+    except ValueError as ex:
+        print(ex)
+        return 1
 
     npz_path = _ROOT / args.npz
     if not npz_path.is_file():
@@ -89,6 +111,7 @@ def main() -> int:
         val_idx = np.asarray(val_mask, dtype=bool)
 
     print(f"train={train_idx.sum():,} val={val_idx.sum():,}")
+    print(f"class_weights={class_weights}")
 
     print(f"Generating KN2 labels (fast={'numba' if _KN2_LABELS_FAST else 'python'})...")
     t_label = time.perf_counter()
@@ -124,6 +147,7 @@ def main() -> int:
         out_path=out_path,
         device=args.device,
         sequence_length=64,
+        class_weights=class_weights,
     )
     if args.mode == "fast":
         stats = train_kn2_fast(
@@ -152,6 +176,7 @@ def main() -> int:
         "mode": args.mode,
         "batch_size": args.batch_size if args.mode == "fast" else None,
         "device_requested": args.device,
+        "class_weights": class_weights,
         "elapsed_sec": round(elapsed, 1),
         **stats,
     }

@@ -51,6 +51,21 @@ def _ensure_torch():
         raise
 
 
+def _normalize_action_class_weights(
+    class_weights: list[float] | None,
+    num_actions: int = 6,
+) -> list[float] | None:
+    """hold/long/short 可传 3 维，自动补齐 num_actions 维。"""
+    if not class_weights:
+        return None
+    w = [float(x) for x in class_weights]
+    if len(w) == 3 and num_actions > 3:
+        w = w + [1.0] * (num_actions - 3)
+    if len(w) != num_actions:
+        raise ValueError(f"class_weights len {len(w)} != num_actions {num_actions}")
+    return w
+
+
 # ==============================================================================
 # GRU 认知叙事网络
 # ==============================================================================
@@ -741,6 +756,7 @@ def train_kn2_end_to_end(
     out_path: str | Path = "models/kn2_trader.pth",
     device: str = "auto",
     sequence_length: int = 64,
+    class_weights: list[float] | None = None,
 ) -> dict[str, Any]:
     """
     KN 2.0 端到端训练。
@@ -794,9 +810,14 @@ def train_kn2_end_to_end(
     )
 
     # 损失函数
-    action_loss_fn = nn.CrossEntropyLoss()
+    cw = _normalize_action_class_weights(class_weights, num_actions)
+    action_loss_fn = nn.CrossEntropyLoss(
+        weight=torch.tensor(cw, dtype=torch.float32).to(device_obj) if cw else None
+    )
     reg_loss_fn = nn.MSELoss()
     bce_loss_fn = nn.BCEWithLogitsLoss()
+    if cw:
+        print(f"  action class_weights={cw}", flush=True)
 
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-5)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
@@ -942,6 +963,7 @@ def train_kn2_end_to_end(
                 "pos_dim": 6,
                 "architecture": "kn2_v16" if md == 65 else "kn2_legacy",
                 "val_loss": avg_val_loss,
+                "class_weights": cw,
             }
             out.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
         else:
@@ -1006,10 +1028,13 @@ def train_kn2_fast(
 
     print(f"  Sequences: {n_seqs} (train={len(train_seqs)} val={len(val_seqs)})", flush=True)
 
+    cw = _normalize_action_class_weights(class_weights, num_actions)
     action_loss_fn = nn.CrossEntropyLoss(
-        weight=torch.tensor(class_weights, dtype=torch.float32).to(device_obj)
-        if class_weights else None
+        weight=torch.tensor(cw, dtype=torch.float32).to(device_obj)
+        if cw else None
     )
+    if cw:
+        print(f"  action class_weights={cw}", flush=True)
     reg_loss_fn = nn.MSELoss()
     bce_loss_fn = nn.BCEWithLogitsLoss()
     # Soft-target loss for return-derived action probabilities
@@ -1177,6 +1202,7 @@ def train_kn2_fast(
                 "embed_dim": embed_dim, "num_actions": num_actions, "market_dim": md, "pos_dim": 6,
                 "architecture": "kn2_v16" if md == 65 else "kn2_legacy",
                 "val_loss": avg_val,
+                "class_weights": cw,
                 "scenario_trained": "scenarios" in targets,
                 "scenario_horizons": SCENARIO_HORIZONS if "scenarios" in targets else [],
             }

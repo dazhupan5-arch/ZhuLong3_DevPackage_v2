@@ -24,6 +24,7 @@ py -3 -u scripts/train_kn2_v16.py `
     --batch-size 48 `
     --epochs 120 `
     --patience 25 `
+    --class-weights "0.85,2.5,2.5,1.0,1.0,1.0" `
     2>&1 | Tee-Object -FilePath $log
 
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

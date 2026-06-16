@@ -98,6 +98,7 @@ py -3 -u scripts/train_kn2_v16.py `
     --batch-size $BatchSize `
     --epochs $Epochs `
     --patience $Patience `
+    --class-weights "0.85,2.5,2.5,1.0,1.0,1.0" `
     2>&1 | Tee-Object -FilePath $log
 
 if ($LASTEXITCODE -ne 0) {
@@ -124,8 +125,8 @@ foreach ($rel in $artifacts) {
 Write-Host @"
 
 开发机部署（模型拷回后）:
-  Copy-Item models\kn2_trader_v16.*  ->  AppData\Roaming\ZhuLong\models\
-  验证 meta.json 中 market_dim=65, architecture=kn2_v16
-  config_agent.json: kn2.enabled=true（shadow 可先 true）
+  Copy-Item models\kn2_trader_v16.*  data\  ->  或 models\
+  py -3 scripts/accept_kn2_v16.py --model models/kn2_trader_v16.pth
+  验收 passed=true 后再 config_agent.json kn2.enabled=true
 
 "@ -ForegroundColor Cyan
