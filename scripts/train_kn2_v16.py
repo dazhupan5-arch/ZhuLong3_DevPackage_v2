@@ -47,7 +47,7 @@ def _parse_class_weights(raw: str) -> list[float]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--npz", default="data/kn2_training_v16.npz")
+    parser.add_argument("--npz", default="data/clean/kn2_training_v16.npz")
     parser.add_argument("--epochs", type=int, default=120)
     parser.add_argument("--patience", type=int, default=25)
     parser.add_argument("--lr", type=float, default=0.0004)

@@ -41,10 +41,10 @@ def _save_progress(progress_path: Path, done: int, total: int) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--npz", default="data/training_horizon_v16.npz")
+    parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
     parser.add_argument("--horizon-onnx", default="models/horizon_v16.onnx")
     parser.add_argument("--horizon-scaler", default="models/horizon_v16_scaler.pkl")
-    parser.add_argument("--out", default="data/kn2_training_v16.npz")
+    parser.add_argument("--out", default="data/clean/kn2_training_v16.npz")
     parser.add_argument("--checkpoint-every", type=int, default=50000)
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--rebuild", action="store_true")

@@ -7,6 +7,10 @@ data:
   default_end: "2025-12-31"
   label_horizon: 12
   label_threshold: 0.002
+  # V16 干净训练集（Git LFS，GPU 机 git pull 后直接用）
+  v16_horizon_npz: "data/clean/training_horizon_v16.npz"
+  v16_kn2_npz: "data/clean/kn2_training_v16.npz"
+  v16_clean_csv: "data/clean/XAUUSD_M5_clean.csv"
 
 device:
   torch: auto   # auto | cuda | cpu — KnowledgeNet 等 PyTorch 训练

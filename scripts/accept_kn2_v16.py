@@ -84,7 +84,7 @@ def _eval_val_sequences(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="models/kn2_trader_v16.pth")
-    parser.add_argument("--npz", default="data/kn2_training_v16.npz")
+    parser.add_argument("--npz", default="data/clean/kn2_training_v16.npz")
     parser.add_argument("--max-val-bars", type=int, default=20000, help="0=all val bars")
     args = parser.parse_args()
 

@@ -26,7 +26,7 @@ MIN_MACRO_F1 = 0.45
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=80)
-    parser.add_argument("--npz", default="data/training_horizon_v16.npz")
+    parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
     parser.add_argument("--lr", type=float, default=0.0005)
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--smote-ratio", type=float, default=0.5)

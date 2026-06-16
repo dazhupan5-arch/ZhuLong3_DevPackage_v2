@@ -91,13 +91,18 @@ def main() -> int:
     parser.add_argument("--gain", type=float, default=0.002)
     parser.add_argument("--quick", type=int, default=0, help="仅末 N 根 M5（建议首次 50000）")
     parser.add_argument("--jobs", type=int, default=1, help="结构特征并行度，默认 1 避免 CPU 打满")
+    parser.add_argument("--csv", default="", help="M5 CSV 路径（默认 config）")
+    parser.add_argument("--out", default="data/training_horizon_v16.npz", help="输出 NPZ")
     parser.add_argument("--rebuild", action="store_true", help="删除断点，从零重算")
     parser.add_argument("--checkpoint-every", type=int, default=10000)
     args = parser.parse_args()
 
     cfg = load_training_config(_ROOT / "config_training.yaml")
     paths = resolve_symbol_paths(args.symbol, cfg)
-    df = load_m5_csv(paths["csv"], "2016-01-01", args.end)
+    csv_path = Path(args.csv) if args.csv else paths["csv"]
+    df = load_m5_csv(
+        csv_path, "2016-01-01", args.end, clean=False, filter_weekend=False, filter_low_volume=False
+    )
     if args.quick > 0 and len(df) > args.quick:
         df = df.iloc[-args.quick :].reset_index(drop=True)
     m5 = df.set_index("time")
@@ -166,7 +171,9 @@ def main() -> int:
     atr[:14] = atr[14]
 
     n = min(len(struct), len(labels))
-    out = _ROOT / "data" / "training_horizon_v16.npz"
+    out = Path(args.out)
+    if not out.is_absolute():
+        out = _ROOT / out
     np.savez(
         out,
         symbol=np.array([args.symbol.upper()]),

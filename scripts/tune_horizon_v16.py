@@ -144,7 +144,7 @@ def _run_trial(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--npz", default="data/training_horizon_v16.npz")
+    parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
     parser.add_argument("--trials", default="", help="comma names to run subset")
     parser.add_argument("--target-f1", type=float, default=TARGET_F1)
     args = parser.parse_args()

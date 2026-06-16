@@ -40,6 +40,9 @@ ZhuLong_Setup_v3.0.0.exe/
 data/*.npz
 data/**/*.parquet
 data/training/kn2_v16/
+# 干净 V16 训练集（Git LFS，供 GPU 机 pull 后直接训练）
+!data/clean/
+!data/clean/**
 models/*.pth
 models/*.onnx
 models/*.pkl

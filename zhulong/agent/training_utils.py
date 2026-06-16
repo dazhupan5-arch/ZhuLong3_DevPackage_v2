@@ -104,7 +104,77 @@ def find_csv(symbol: str, override: str | None = None) -> Path:
     return ROOT / SYMBOL_DEFAULTS.get(sym, SYMBOL_DEFAULTS["XAUUSD"])["csv_candidates"][0]
 
 
-def load_m5_csv(path: Path, start: str | None = None, end: str | None = None) -> pd.DataFrame:
+def clean_m5_bars(
+    df: pd.DataFrame,
+    *,
+    spike_atr_mult: float = 10.0,
+    max_body_pct: float = 0.025,
+    drop_zero_volume: bool = True,
+    report: dict[str, int] | None = None,
+) -> pd.DataFrame:
+    """清洗 M5 OHLCV：去重、OHLC 合法性、异常 spike、零成交量等。"""
+    r: dict[str, int] = report if report is not None else {}
+    n0 = len(df)
+    out = df.sort_values("time").reset_index(drop=True)
+
+    def _drop(mask: pd.Series, key: str) -> None:
+        nonlocal out
+        n_bad = int((~mask).sum())
+        if n_bad:
+            r[key] = r.get(key, 0) + n_bad
+            out = out.loc[mask].reset_index(drop=True)
+
+    cols = ["open", "high", "low", "close", "volume"]
+    _drop(out[cols].apply(pd.to_numeric, errors="coerce").notna().all(axis=1), "non_finite")
+    for c in ("open", "high", "low", "close"):
+        _drop(out[c] > 0, f"non_positive_{c}")
+
+    hi_ref = out[["open", "close", "high"]].max(axis=1)
+    lo_ref = out[["open", "close", "low"]].min(axis=1)
+    _drop((out["high"] >= hi_ref - 1e-9) & (out["low"] <= lo_ref + 1e-9) & (out["high"] >= out["low"]), "ohlc_invalid")
+
+    dup = out["time"].duplicated(keep="last")
+    if dup.any():
+        r["duplicate_time"] = int(dup.sum())
+        out = out.loc[~dup].reset_index(drop=True)
+
+    if drop_zero_volume:
+        _drop(out["volume"] > 0, "zero_volume")
+
+    close = out["close"].astype(np.float64)
+    prev_close = close.shift(1)
+    tr = np.maximum(out["high"].values - out["low"].values, np.abs(out["high"].values - prev_close.fillna(out["open"]).values))
+    tr = np.maximum(tr, np.abs(out["low"].values - prev_close.fillna(out["open"]).values))
+    atr = pd.Series(tr, index=out.index).rolling(14, min_periods=1).mean().values
+    bar_range = (out["high"] - out["low"]).values
+    body_pct = (np.abs(out["close"] - out["open"]) / np.maximum(close, 1e-9)).values
+    spike = (bar_range > spike_atr_mult * np.maximum(atr, close.values * 1e-4)) | (body_pct > max_body_pct)
+    _drop(~spike, "price_spike")
+
+    # 单根 bad tick：收盘价相对前收跳变 >1.5% 且下一根 revert >50%
+    if len(out) >= 3:
+        ret1 = (close - prev_close) / np.maximum(prev_close, 1e-9)
+        next_ret = (close.shift(-1) - close) / np.maximum(close, 1e-9)
+        bad_tick = (ret1.abs() > 0.015) & (ret1 * next_ret < 0) & (next_ret.abs() > ret1.abs() * 0.5)
+        bad_tick = bad_tick.fillna(False)
+        _drop(~bad_tick, "bad_tick_revert")
+
+    r["rows_in"] = n0
+    r["rows_out"] = len(out)
+    r["rows_removed"] = n0 - len(out)
+    return out[["time", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
+
+
+def load_m5_csv(
+    path: Path,
+    start: str | None = None,
+    end: str | None = None,
+    *,
+    clean: bool = True,
+    filter_weekend: bool = True,
+    filter_low_volume: bool = True,
+    clean_report: dict[str, int] | None = None,
+) -> pd.DataFrame:
     raw = pd.read_csv(path, header=None)
     if raw.shape[1] >= 7 and not _has_named_columns(path):
         raw.columns = ["date", "time_str", "open", "high", "low", "close", "volume"][: raw.shape[1]]
@@ -125,13 +195,20 @@ def load_m5_csv(path: Path, start: str | None = None, end: str | None = None) ->
         df = df[df["time"] >= pd.Timestamp(start, tz="UTC")]
     if end:
         df = df[df["time"] <= pd.Timestamp(end, tz="UTC") + pd.Timedelta(days=1)]
-    df = df[df["time"].dt.dayofweek < 5].copy()
-    if vol_col in df.columns and len(df) > 100:
+    if filter_weekend:
+        df = df[df["time"].dt.dayofweek < 5].copy()
+    if filter_low_volume and vol_col in df.columns and len(df) > 100:
         q = df[vol_col].quantile(0.05)
+        n_low_vol = int((df[vol_col] < q).sum())
+        if clean_report is not None and n_low_vol:
+            clean_report["low_volume_bottom5pct"] = n_low_vol
         df = df[df[vol_col] >= q].copy()
     if vol_col != "volume":
         df = df.rename(columns={vol_col: "volume"})
-    return df[["time", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
+    df = df[["time", "open", "high", "low", "close", "volume"]].reset_index(drop=True)
+    if clean:
+        df = clean_m5_bars(df, report=clean_report)
+    return df
 
 
 def _has_named_columns(path: Path) -> bool:

@@ -48,7 +48,7 @@ def _side_ratio(long_n: int, short_n: int, max_ratio: float) -> tuple[bool, floa
 def _check_training(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
     failures: list[str] = []
     detail: dict = {}
-    npz = root / "data" / "training_horizon_v16.npz"
+    npz = root / "data" / "clean" / "training_horizon_v16.npz"
     meta_path = root / "models" / "horizon_v16.meta.json"
     if not npz.is_file():
         failures.append("missing_training_npz")

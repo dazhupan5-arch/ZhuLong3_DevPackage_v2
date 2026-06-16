@@ -1,11 +1,11 @@
 # KN2 V16 GPU 机器训练（RTX 3050 等）
-# 用法：在 GPU 机器 clone 代码后，把 data/kn2_training_v16.npz 拷到同路径，再运行本脚本。
+# 用法：在 GPU 机器 git pull（含 LFS）后 data/clean/kn2_training_v16.npz 即就绪，再运行本脚本。
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot\..
 
-$npz = Join-Path (Get-Location) "data\kn2_training_v16.npz"
+$npz = Join-Path (Get-Location) "data\clean\kn2_training_v16.npz"
 if (-not (Test-Path $npz)) {
-    Write-Error "缺少 $npz — 从开发机拷贝，或先运行 prepare_kn2_v16_data.py"
+    Write-Error "缺少 $npz — git lfs pull，或运行 scripts/clean_training_data_v16.py"
 }
 
 Write-Host "=== PyTorch / CUDA 检查 ===" -ForegroundColor Cyan

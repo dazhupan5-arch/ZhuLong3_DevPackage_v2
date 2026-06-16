@@ -5,7 +5,7 @@
 .DESCRIPTION
   1. 检查 Python / CUDA / PyTorch
   2. 可选安装 CUDA 版 PyTorch 与项目依赖
-  3. 校验 data/kn2_training_v16.npz（需从开发机拷贝，约 145MB）
+  3. 校验 data/clean/kn2_training_v16.npz（git pull + git lfs pull）
   4. 以 fast 模式训练，输出 kn2_trader_v16.pth
   5. 打印需拷回开发机的文件清单
 
@@ -64,7 +64,7 @@ else:
     raise SystemExit('CUDA 不可用：请安装 NVIDIA 驱动 + cu124 版 PyTorch（-InstallDeps）')
 "@
 
-$npz = Join-Path $Root "data\kn2_training_v16.npz"
+$npz = Join-Path $Root "data\clean\kn2_training_v16.npz"
 if (-not $SkipDataCheck) {
     Write-Step "数据"
     if (-not (Test-Path $npz)) {
@@ -72,12 +72,12 @@ if (-not $SkipDataCheck) {
 
 缺少训练数据: $npz
 
-请从开发机拷贝（约 145MB）：
-  源: D:\trae_projects\ZhuLong3_DevPackage_v2\data\kn2_training_v16.npz
-  目标: $npz
+在 GPU 机器上：
+  git pull
+  git lfs pull
 
-或在 GPU 机器上重新生成（需 horizon 模型 + training_horizon_v16.npz）：
-  py -3 scripts/prepare_kn2_v16_data.py
+或本地重新生成：
+  py -3 scripts/clean_training_data_v16.py
 
 "@ -ForegroundColor Yellow
         exit 1
