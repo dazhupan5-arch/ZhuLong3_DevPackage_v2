@@ -1,0 +1,21 @@
+{
+  "hidden_dim": 128,
+  "num_layers": 2,
+  "embed_dim": 64,
+  "num_actions": 3,
+  "market_dim": 98,
+  "pos_dim": 6,
+  "scenario_trained": true,
+  "scenario_horizons": [
+    1,
+    2,
+    4,
+    8,
+    12,
+    16,
+    24,
+    48
+  ],
+  "val_loss": 1.087424635887146,
+  "base_model": "kn2_trader.pth"
+}

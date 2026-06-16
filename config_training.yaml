@@ -1,0 +1,155 @@
+data:
+  xau_path: "data/training_data.npz"
+  oil_path: "data/oil_training_data.npz"
+  xau_csv: "data/training/lgb/XAUUSD/XAUUSD_M5.csv"
+  oil_csv: "data/training/lgb/USOIL/USOIL_M5.csv"
+  default_start: "2016-01-01"
+  default_end: "2025-12-31"
+  label_horizon: 12
+  label_threshold: 0.002
+
+device:
+  torch: auto   # auto | cuda | cpu — KnowledgeNet 等 PyTorch 训练
+  rl: cpu      # auto | cuda | cpu — PPO 强化学习（MLP策略CPU更快）
+
+structure_analyzer:
+  periods: ["M5", "M15", "H1", "H4"]
+  zigzag_atr_mult: 0.5
+  lookback: 200
+  n_jobs: 0     # 0=多核并行，1=单线程（Windows 进程池异常时可改 1）
+  progress_every: 2000
+
+knowledge_net:
+  input_dim: 66
+  hidden_dim: 128
+  embed_dim: 32
+  lr: 0.0005
+  epochs: 120
+  patience: 20
+  batch_size: 512
+  val_ratio: 0.15
+  use_smote: true
+  shuffle_train: true
+  smote_ratio: 0.8
+  class_weights: [2.5, 1.0, 2.5]
+  min_macro_f1: 0.35
+  min_val_accuracy: 0.60
+  v15_distill:
+    enabled: true
+    train_end: "2024-12-31"
+    epochs: 80
+    patience: 20
+    batch_size: 512
+    lr: 0.0005
+    hidden_dim: 128
+    embed_dim: 32
+    num_res_blocks: 3
+    distill_weight: 0.95
+    temperature: 2.0
+    class_weights: [2.0, 1.0, 2.5]
+    min_v15_agreement: 0.68
+    min_trade_precision: 0.58
+    train_stride: 2
+  v14_distill:
+    enabled: true
+    train_end: "2024-12-31"
+    epochs: 80
+    patience: 20
+    batch_size: 512
+    lr: 0.0005
+    hidden_dim: 128
+    embed_dim: 32
+    num_res_blocks: 3
+    distill_weight: 0.95
+    temperature: 2.0
+    class_weights: [1.0, 1.0, 1.0]
+    min_v14_agreement: 0.70
+    min_trade_precision: 0.55
+    train_stride: 2
+  model_xau: "models/knowledge_net.pth"
+  model_oil: "models/knowledge_net_oil.pth"
+  scaler_xau: "models/knowledge_scaler.pkl"
+  scaler_oil: "models/knowledge_scaler_oil.pkl"
+  oil:
+    hidden_dim: 64
+    num_res_blocks: 2
+    epochs: 150
+    patience: 25
+    lr: 0.001
+    label_horizon: 18
+    label_gain: 0.003
+    shuffle_train: false
+    select_by: accuracy
+    val_ratio: 0.12
+
+rl:
+  total_timesteps: 800000
+  learning_rate: 0.00025
+  n_steps: 4096
+  batch_size: 128
+  n_epochs: 10
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_range: 0.2
+  ent_coef: 0.05
+  ent_coef_start: 0.06
+  ent_coef_end: 0.015
+  eval_freq: 25000
+  max_episode_steps: 5000
+  train_through_year: 2024
+  eval_bars: 15000
+  metrics_freq: 25000
+  cognition_align:
+    gate_actions: true
+    same_direction_bonus: 0.03
+    opposite_direction_penalty: 0.20
+  forced_explore:
+    enabled: true
+    steps: 20000
+    prob: 0.25
+  model_xau: "models/rl_agent_xau"
+  model_oil: "models/rl_agent_oil"
+  xau:
+    open_reward_bonus: 0.04
+    forced_explore:
+      enabled: true
+      steps: 50000
+      prob: 0.35
+    ent_coef_start: 0.08
+    ent_coef_end: 0.02
+    cognition_align:
+      same_direction_bonus: 0.06
+      opposite_direction_penalty: 0.30
+  oil:
+    forced_explore:
+      enabled: true
+      steps: 80000
+      prob: 0.35
+    ent_coef_start: 0.08
+    ent_coef_end: 0.02
+    open_reward_bonus: 0.02
+    cognition_align:
+      same_direction_bonus: 0.04
+      opposite_direction_penalty: 0.25
+
+env:
+  initial_balance: 10000
+  slippage: 0.1
+  stop_loss_atr_mult: 1.2
+  take_profit_atr_mult: 2.0
+  max_hold_bars: 48
+  hold_penalty: 0.0
+  open_reward_bonus: 0.02
+  close_profit_bonus: 0.08
+  cost_scale: 1.0
+  max_trades_per_episode: 25
+  drawdown_penalty_coef: 0.1
+  point_cost:
+    XAUUSD: 0.2
+    USOIL: 0.03
+
+backtest:
+  eval_year: 2025
+  min_winrate: 0.50
+  min_profit_factor: 1.3
+  max_drawdown: 0.25

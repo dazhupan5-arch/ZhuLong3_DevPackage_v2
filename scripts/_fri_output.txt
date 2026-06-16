@@ -1,0 +1,47 @@
+C:\Users\xiaomi\AppData\Local\Programs\Python\Python311\Lib\site-packages\sklearn\base.py:463: InconsistentVersionWarning: Trying to unpickle estimator StandardScaler from version 1.9.0 when using version 1.8.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781444819.396650   12528 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781444821.238260   12528 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+Friday: 20260605  (32 bars)
+  Time: 2026-06-05 01:00:00 -> 2026-06-05 03:35:00
+  23:55:00   long   buy  c=0.5277  sl= 4473.06                          FLAT *** ENTRY ***
+  01:00:00   long   buy  c=0.5361  sl= 4472.41              LONG(1b +-0.03%)
+  01:05:00   long   buy  c=0.5407  sl= 4470.29              LONG(2b +-0.00%)
+  01:10:00   long   buy  c=0.5442  sl= 4471.58               LONG(3b +0.01%)
+  01:15:00   long   buy  c=0.5471  sl= 4471.94               LONG(4b +0.06%)
+  01:20:00   long   buy  c=0.5486  sl= 4473.28               LONG(5b +0.09%)
+  01:25:00   long   buy  c=0.5499  sl= 4475.40               LONG(6b +0.09%)
+  01:30:00   long   buy  c=0.5504  sl= 4475.32               LONG(7b +0.07%)
+  01:35:00   long   buy  c=0.5515  sl= 4474.66               LONG(8b +0.09%)
+  01:40:00   long   buy  c=0.5518  sl= 4474.94               LONG(9b +0.00%)
+  01:45:00   long   buy  c=0.5519  sl= 4471.67             LONG(10b +-0.03%)
+  01:55:00   long   buy  c=0.5517  sl= 4465.30                          FLAT *** ENTRY ***
+  02:00:00   long   buy  c=0.5522  sl= 4465.09               LONG(1b +0.01%)
+  02:05:00   long   buy  c=0.5523  sl= 4462.44               LONG(2b +0.04%)
+  02:10:00   long   buy  c=0.5523  sl= 4464.20               LONG(3b +0.03%)
+  02:15:00   long   buy  c=0.5521  sl= 4466.43               LONG(4b +0.01%)
+  02:20:00   long   buy  c=0.5524  sl= 4465.15               LONG(5b +0.04%)
+  02:25:00   long   buy  c=0.5515  sl= 4464.29              LONG(6b +-0.01%)
+  02:30:00   long   buy  c=0.5520  sl= 4463.94              LONG(7b +-0.09%)
+  02:40:00   long   buy  c=0.5501  sl= 4456.40                          FLAT *** ENTRY ***
+  02:45:00   long   buy  c=0.5509  sl= 4457.46               LONG(1b +0.02%)
+  02:50:00   long   buy  c=0.5513  sl= 4456.99               LONG(2b +0.02%)
+  02:55:00   long   buy  c=0.5515  sl= 4458.56              LONG(3b +-0.03%)
+  03:00:00   long   buy  c=0.5514  sl= 4456.34              LONG(4b +-0.02%)
+  03:05:00   long   buy  c=0.5502  sl= 4455.81              LONG(5b +-0.05%)
+  03:15:00   long   buy  c=0.5488  sl= 4449.92                          FLAT *** ENTRY ***
+  03:20:00   long   buy  c=0.5504  sl= 4446.96               LONG(1b +0.04%)
+  03:25:00   long   buy  c=0.5506  sl= 4447.09               LONG(2b +0.12%)
+  03:30:00   long   buy  c=0.5504  sl= 4448.60               LONG(3b +0.18%)
+
+  Bars: 29  |  Trades: 4
+  KN2 internal: hold=0 long=29 short=0
+  Signals sent: flat=0 buy=29 sell=0
+
+  Trade #1: BUY  entry=4475.2  exit=4469.7  hold=11 bars (0.9h)  PnL=-0.12%  MFE=+0.09%  MAE=-0.12%  r=SL_HIT
+  Trade #2: BUY  entry=4469.7  exit=4463.8  hold=8 bars (0.7h)  PnL=-0.13%  MFE=+0.04%  MAE=-0.13%  r=SL_HIT
+  Trade #3: BUY  entry=4463.3  exit=4455.4  hold=6 bars (0.5h)  PnL=-0.18%  MFE=+0.02%  MAE=-0.18%  r=SL_HIT
+  Trade #4: BUY  entry=4452.4  exit=4461.6  hold=3 bars (0.2h)  PnL=+0.21%  MFE=+0.18%  MAE=+0.00%  r=EOD(open)

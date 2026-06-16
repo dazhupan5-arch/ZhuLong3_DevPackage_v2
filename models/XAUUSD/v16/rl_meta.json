@@ -1,0 +1,8 @@
+{
+  "symbol": "XAUUSD",
+  "timesteps": 800000,
+  "model": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\rl_agent_xau.zip",
+  "state_scaler": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\agent_state_scaler_xauusd.json",
+  "knowledge_model": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\horizon_v16.onnx",
+  "architecture": "v16"
+}

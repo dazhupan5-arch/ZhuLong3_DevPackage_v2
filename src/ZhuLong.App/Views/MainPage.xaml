@@ -1,0 +1,246 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Page
+    x:Class="ZhuLong.App.Views.MainPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:models="using:ZhuLong.Core.Models"
+    xmlns:local="using:ZhuLong.App.Views"
+    mc:Ignorable="d">
+
+    <NavigationView x:Name="NavView" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed" IsSettingsVisible="False" SelectionChanged="OnNavSelectionChanged">
+        <NavigationView.PaneHeader>
+            <StackPanel Margin="12,12,12,8" Spacing="6">
+                <Image x:Name="PaneLogoImage" Width="48" Height="48" HorizontalAlignment="Left" />
+                <TextBlock FontSize="16" FontWeight="SemiBold" Text="烛龙 ZhuLong" />
+            </StackPanel>
+        </NavigationView.PaneHeader>
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="信号" Tag="signals" Icon="Document" IsSelected="True" />
+            <NavigationViewItem Content="持仓" Tag="positions" Icon="People" />
+            <NavigationViewItem Content="调参" Tag="params" Icon="Switch" />
+            <NavigationViewItem Content="归因" Tag="analysis" Icon="Calculator" />
+        </NavigationView.MenuItems>
+        <NavigationView.FooterMenuItems>
+            <NavigationViewItem Content="设置" Tag="settings" Icon="Setting" />
+        </NavigationView.FooterMenuItems>
+
+        <Grid Padding="16" RowSpacing="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <Image x:Name="TitleLogoImage" Width="40" Height="40" />
+                <TextBlock FontSize="18" FontWeight="SemiBold" VerticalAlignment="Center" Text="{x:Bind ViewModel.AppVersionLine, Mode=OneWay}" />
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12">
+                <TextBlock VerticalAlignment="Center" Text="{Binding StatusText}" TextWrapping="Wrap" MaxWidth="320" />
+                <Button Command="{Binding ConnectCommand}" Content="连接 MT5" />
+                <Button Command="{Binding StartCommand}" Content="开始运行" />
+                <Button Command="{Binding StopCommand}" Content="停止" />
+                <Button Command="{Binding RefreshSignalsCommand}" Content="刷新信号" />
+            </StackPanel>
+
+            <Grid Grid.Row="2" RowSpacing="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+            <Grid Grid.Row="0" ColumnSpacing="12" Padding="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" MinWidth="64" />
+                    <ColumnDefinition Width="*" MinWidth="64" />
+                    <ColumnDefinition Width="*" MinWidth="64" />
+                    <ColumnDefinition Width="*" MinWidth="72" />
+                    <ColumnDefinition Width="*" MinWidth="64" />
+                    <ColumnDefinition Width="*" MinWidth="88" />
+                    <ColumnDefinition Width="*" MinWidth="72" />
+                </Grid.ColumnDefinitions>
+
+                <StackPanel Grid.Column="0" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="MT5" />
+                    <TextBlock Text="{Binding Mt5HealthText}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="管道" />
+                    <TextBlock Text="{Binding PipeStatus}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="2" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="模型" />
+                    <TextBlock Text="{Binding ModelsHealthText}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="3" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="M1 K线(北京)" />
+                    <TextBlock Text="{Binding LastBarText}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock FontSize="11" Text="{Binding BarHealthText}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="4" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="运行" />
+                    <TextBlock Text="{Binding RunningHealthText}" TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="5" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="授权" />
+                    <TextBlock Text="{Binding LicenseSummary}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding LicenseSummary}" />
+                </StackPanel>
+
+                <StackPanel Grid.Column="6" Spacing="2">
+                    <TextBlock FontSize="11" Foreground="Gray" Text="策略" />
+                    <TextBlock Text="{Binding StrategyHealthText}" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{Binding StrategyHealthText}" />
+                </StackPanel>
+            </Grid>
+            <TextBlock Grid.Row="1" FontSize="12" Foreground="Gray"
+                       Text="{Binding SyncHealthText}" TextWrapping="WrapWholeWords" />
+            </Grid>
+
+            <Grid Grid.Row="3" ColumnSpacing="16">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="2*" MinWidth="280" />
+                    <ColumnDefinition Width="*" MinWidth="220" />
+                </Grid.ColumnDefinitions>
+
+                <Grid Grid.Column="0">
+                    <Grid x:Name="SignalsPanel">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="160" />
+                        </Grid.RowDefinitions>
+                        <TextBlock FontWeight="SemiBold" Text="信号面板" />
+                        <TextBlock Grid.Row="1" Margin="0,4,0,4" Foreground="Gray" TextWrapping="WrapWholeWords"
+                                   Text="{Binding AgentOpinionText}" FontSize="12" />
+                        <TextBlock Grid.Row="2" FontWeight="SemiBold" Text="当前托管" />
+                        <ListView Grid.Row="3" ItemsSource="{Binding ActiveSignals}" IsItemClickEnabled="True" ItemClick="OnSignalClick">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:SignalModel">
+                                    <Grid ColumnSpacing="8" Padding="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="44" />
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="56" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind CreatedAtText}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Symbol}" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Direction}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind StrategyDisplay}" />
+                                        <TextBlock Grid.Column="4" Text="{x:Bind Confidence}" />
+                                        <TextBlock Grid.Column="5" Text="{x:Bind StatusDisplay}" />
+                                        <TextBlock Grid.Column="6" Text="{x:Bind CloseDetailDisplay}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock Grid.Row="4" Margin="0,8,0,4" FontWeight="SemiBold" Foreground="Gray" Text="最近已平仓（时间=平仓时刻）" />
+                        <ListView Grid.Row="5" ItemsSource="{Binding ClosedSignals}" IsItemClickEnabled="True" ItemClick="OnSignalClick">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:SignalModel">
+                                    <Grid ColumnSpacing="8" Padding="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120" />
+                                            <ColumnDefinition Width="64" />
+                                            <ColumnDefinition Width="44" />
+                                            <ColumnDefinition Width="72" />
+                                            <ColumnDefinition Width="56" />
+                                            <ColumnDefinition Width="100" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ClosedAtText}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Symbol}" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Direction}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind StrategyDisplay}" />
+                                        <TextBlock Grid.Column="4" Text="{x:Bind Confidence}" />
+                                        <TextBlock Grid.Column="5" Text="{x:Bind StatusDisplay}" />
+                                        <TextBlock Grid.Column="6" Text="{x:Bind PnlDisplay}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+
+                    <Grid x:Name="PositionsPanel" Visibility="Collapsed">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock FontWeight="SemiBold" Text="持仓（MT5 全部 · 烛龙托管标「已匹配」）" />
+                        <TextBlock Grid.Row="1" Foreground="Gray" TextWrapping="WrapWholeWords"
+                                   Text="手动开仓会显示为「手动 · 仅展示」，不参与移动止损/模型出场；烛龙信号单匹配 Comment 后为托管。" />
+                        <Button Grid.Row="2" Margin="0,4,0,4" Command="{Binding RefreshPositionsCommand}" Content="刷新持仓" HorizontalAlignment="Left" />
+                        <ListView Grid.Row="3" ItemsSource="{Binding Positions}">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:ManagedPositionModel">
+                                    <Grid ColumnSpacing="8" Padding="4">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="70" />
+                                            <ColumnDefinition Width="50" />
+                                            <ColumnDefinition Width="80" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind Ticket}" />
+                                        <TextBlock Grid.Column="1" Text="{x:Bind Symbol}" />
+                                        <TextBlock Grid.Column="2" Text="{x:Bind Direction}" />
+                                        <TextBlock Grid.Column="3" Text="{x:Bind ProfitPct}" />
+                                        <TextBlock Grid.Column="4" Text="{x:Bind TrailingState}" TextTrimming="CharacterEllipsis" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                    </Grid>
+
+                    <local:ParamsPanel x:Name="ParamsPanel" Visibility="Collapsed" />
+                    <local:AnalysisPanel x:Name="AnalysisPanel" Visibility="Collapsed" />
+                    <local:SettingsPanel x:Name="SettingsPanel" Visibility="Collapsed" />
+                </Grid>
+
+                <Grid Grid.Column="1" RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <TextBlock FontWeight="SemiBold" Text="日志" />
+                    <Border
+                        Grid.Row="1"
+                        Padding="10,8"
+                        Background="#FF1A2D45"
+                        BorderBrush="#FF3D6B9E"
+                        BorderThickness="1"
+                        CornerRadius="6">
+                        <TextBlock
+                            FontWeight="SemiBold"
+                            Foreground="#FF8EC8FF"
+                            Text="{Binding MacroBannerText}"
+                            TextWrapping="WrapWholeWords" />
+                    </Border>
+                    <ListView Grid.Row="2" ItemsSource="{Binding Logs}">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <TextBlock Text="{x:Bind}" TextWrapping="WrapWholeWords" IsTextSelectionEnabled="True" />
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                </Grid>
+            </Grid>
+        </Grid>
+    </NavigationView>
+</Page>

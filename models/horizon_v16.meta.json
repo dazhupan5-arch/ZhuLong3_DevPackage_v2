@@ -1,0 +1,10 @@
+{
+  "input_dim": 30,
+  "model_id": "horizon_v16",
+  "horizon_bars": 12,
+  "gain_threshold": 0.002,
+  "val_accuracy": 0.49591161971133857,
+  "macro_f1": 0.410272276643247,
+  "training_rows": 673448,
+  "passed": false
+}

@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ZhuLong config.json",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": {
+    "app": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" }
+      }
+    },
+    "model": {
+      "type": "object",
+      "properties": {
+        "seq_len": { "type": "integer", "minimum": 1 },
+        "feature_dim_5min": { "type": "integer", "minimum": 1 },
+        "default_symbols": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "signal_filters": {
+      "type": "object",
+      "properties": {
+        "prob_threshold": { "type": "number", "minimum": 0, "maximum": 1 },
+        "min_expected_return": { "type": "number" },
+        "min_risk_reward": { "type": "number", "minimum": 0 },
+        "cooldown_minutes": { "type": "integer", "minimum": 0 },
+        "signal_expiry_minutes": { "type": "integer", "minimum": 1 },
+        "min_volatility_atr": { "type": "number", "minimum": 0 },
+        "max_volatility_atr": { "type": "number", "minimum": 0 }
+      }
+    },
+    "position_management": {
+      "type": "object",
+      "properties": {
+        "max_hold_minutes": { "type": "integer", "minimum": 1 },
+        "order_retry_max": { "type": "integer", "minimum": 1 },
+        "trailing_activation_pct": { "type": "number", "minimum": 0 },
+        "use_model_exit": { "type": "boolean" }
+      }
+    },
+    "risk_guard": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "max_daily_loss_pct": { "type": "number", "exclusiveMinimum": 0 },
+        "max_concurrent_positions": { "type": "integer", "minimum": 1 },
+        "max_pending_signals": { "type": "integer", "minimum": 1 },
+        "symbol_cooldown_minutes": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "symbol_mapping": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  }
+}

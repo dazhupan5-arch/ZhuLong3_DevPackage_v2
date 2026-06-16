@@ -1,0 +1,22 @@
+{
+  "symbol": "USOIL",
+  "kind": "production",
+  "acceptance_passed": true,
+  "acceptance_stage": "v14",
+  "classifier_mode": "oil_v14",
+  "feature_mode": "v13_tabular",
+  "long_threshold": 0.5,
+  "short_threshold": 0.54,
+  "model_version": "v14",
+  "trained_at": "2026-06-08",
+  "metrics": {
+    "oos_win_rate": 0.953,
+    "oos_avg_rr": 4.24,
+    "oos_n_trades": 64,
+    "oos_max_drawdown": 0.01,
+    "oos_total_pnl_r": 100.5,
+    "val_precision": 0.6
+  },
+  "note": "V14: 原油V14方案，68维形态特征，gain=0.3%，胜率95.3%",
+  "stage": "v14"
+}

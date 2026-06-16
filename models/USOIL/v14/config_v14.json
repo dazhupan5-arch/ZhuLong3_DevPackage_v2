@@ -1,0 +1,13 @@
+{
+  "long_threshold": 0.5,
+  "short_threshold": 0.54,
+  "passed": true,
+  "n_features": 68,
+  "trees": 400,
+  "n_trades_oos": 465,
+  "win_rate_oos": 0.712,
+  "avg_rr_oos": 2.63,
+  "signals_per_day": 1.3,
+  "total_pnl_r": 1222,
+  "note": "400 trees full training WR=71.2% RR=2.63 1.3 signals/day"
+}

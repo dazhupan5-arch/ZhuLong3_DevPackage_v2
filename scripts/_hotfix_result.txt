@@ -1,0 +1,10 @@
+==========================================
+ ZL3 Hotfix - KN2 dictator fixes
+==========================================
+已复制         1 个文件。
+[OK] trading_agent.py
+已复制         1 个文件。
+[OK] config_agent.json -- install
+已复制         1 个文件。
+[OK] config_agent.json -- appdata
+DONE

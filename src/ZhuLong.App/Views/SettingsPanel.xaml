@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<UserControl
+    x:Class="ZhuLong.App.Views.SettingsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" MaxWidth="640">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="设置" />
+            <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords" Text="会员授权与宏观 API 密钥。策略阈值请在侧栏「调参」页修改。" />
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="推理模型" />
+                <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords"
+                           Text="选择主推理品种；勾选「多品种并行」将对所有已验收品种同时推理。切换后无需重启。" />
+                <TextBlock x:Name="TxtModelStatus" TextWrapping="WrapWholeWords" FontFamily="Consolas" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="BtnPickXau" Content="XAUUSD 黄金" Click="OnPickXauClick" />
+                    <Button x:Name="BtnPickOil" Content="USOIL 原油" Click="OnPickOilClick" />
+                </StackPanel>
+                <CheckBox x:Name="ChkInferAll" Content="多品种并行推理" Click="OnInferAllClick" />
+                <CheckBox x:Name="ChkMultiStrategy" Content="多策略自动切换（AI / 趋势 / 对冲 / 网格）" Click="OnMultiStrategyClick" />
+                <CheckBox x:Name="ChkTradingAgent" Content="RL 交易智能体（结构分析 + 知识网络 + PPO，替代调度器）" Click="OnTradingAgentClick" />
+                <TextBlock x:Name="TxtPrimaryHint" Foreground="Gray" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="模型回测 / 验收摘要" />
+                <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords"
+                           Text="来自安装目录 models/*/manifest.json 与 acceptance_summary.json（训练样本外指标，非实机交易记录）。" />
+                <TextBlock x:Name="TxtBacktestSummary" TextWrapping="WrapWholeWords" FontFamily="Consolas" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="会员 / 授权" />
+                <TextBlock x:Name="TxtLicenseStatus" TextWrapping="WrapWholeWords" />
+                <TextBlock Foreground="Gray" x:Name="TxtDeviceId" Text="设备标识：—" />
+                <TextBox x:Name="TxtActivationCode" PlaceholderText="粘贴授权码" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="60" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="BtnActivate" Content="激活" Click="OnActivateClick" />
+                    <Button x:Name="BtnCopyDevice" Content="复制设备信息" Click="OnCopyDeviceClick" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="关于 / 免责声明" />
+                <TextBlock TextWrapping="WrapWholeWords" Foreground="Gray"
+                           Text="烛龙 ZhuLong — 半自动日内波段辅助工具。模型信号仅供参考，不构成投资建议。您须自行在 MT5 下单并承担全部交易风险。过往表现不代表未来收益。调参保存后多数策略项可热更新，详见安装目录 docs/HOT_RELOAD.md。" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="Python 环境" />
+                <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords"
+                           Text="pip 会逐行输出进度（单步最长 25 分钟）。成功标志：上方灰字「环境修复成功」+ 日志末尾「—— 一键修复完成 ——」。" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="BtnEnvCheck" Content="环境自检" Click="OnEnvCheckClick" />
+                    <Button x:Name="BtnEnvRepair" Content="一键修复环境" Click="OnEnvRepairClick" />
+                </StackPanel>
+                <TextBox x:Name="TxtEnvLog" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                         FontFamily="Consolas" MinHeight="120" MaxHeight="220"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto" />
+            </StackPanel>
+
+            <StackPanel Spacing="8">
+                <TextBlock FontWeight="SemiBold" Text="宏观 API 密钥" />
+                <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords"
+                           Text="保存在本机（LocalSettings + %APPDATA%\ZhuLong\secrets\）。环境变量优先。不会写入 config.json。" />
+                <TextBlock Text="FRED API Key" />
+                <PasswordBox x:Name="PwdFred" PlaceholderText="FRED_API_KEY" />
+                <TextBlock Text="Finnhub API Key（经济日历）" />
+                <PasswordBox x:Name="PwdFinnhub" PlaceholderText="FINNHUB_API_KEY" />
+                <TextBlock Text="FMP API Key（日历备用）" />
+                <PasswordBox x:Name="PwdFmp" PlaceholderText="FMP_API_KEY" />
+                <TextBlock Text="LLM API Key（API2D / Gemini）" />
+                <PasswordBox x:Name="PwdLlm" PlaceholderText="LLM_API_KEY" />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <Button x:Name="BtnSaveKeys" Content="保存密钥" Click="OnSaveKeysClick" />
+                    <Button x:Name="BtnRefreshMacro" Content="保存并刷新宏观" Click="OnRefreshMacroClick" />
+                </StackPanel>
+                <TextBlock x:Name="TxtSettingsMessage" Foreground="Gray" TextWrapping="WrapWholeWords" />
+            </StackPanel>
+
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

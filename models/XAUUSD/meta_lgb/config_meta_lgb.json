@@ -1,0 +1,13 @@
+{
+  "enabled": true,
+  "threshold": 0.55,
+  "model_path": "models\\XAUUSD\\meta_lgb\\meta_lgb_model.pkl",
+  "primary_model_path": "models/XAUUSD/lightgbm/lgb_triple_enhanced.pkl",
+  "primary_long_threshold": 0.55,
+  "primary_short_threshold": 0.45,
+  "enhanced": true,
+  "use_quality_labels": true,
+  "quality_file": "data/features/simulated_trade_quality.parquet",
+  "val_auc": 0.7541120231468377,
+  "positive_rate": 0.0004903717394994436
+}

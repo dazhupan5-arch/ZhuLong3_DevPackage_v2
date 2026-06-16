@@ -1,0 +1,10 @@
+"""占位模型目录说明。
+
+发布前须包含各品种子目录，例如 models/XAUUSD/：
+  - transformer_encoder.pth
+  - xgb_classifier.json
+  - xgb_regressor.json
+  - scaler.pkl
+
+由 train.py 训练产出，或从开发机复制预训练文件至此。
+"""

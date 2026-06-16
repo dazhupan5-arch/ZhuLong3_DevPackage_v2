@@ -1,0 +1,27 @@
+# 烛龙 ZhuLong · Python 引擎依赖（ZhuLong.Engine.exe）
+# WinUI 3 壳程序不引用此文件
+torch>=2.0.0
+xgboost>=2.0.0
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+MetaTrader5>=5.0.45
+pywin32>=306
+joblib>=1.3.0
+matplotlib>=3.7.0
+lightgbm>=4.0.0
+pyarrow>=14.0.0
+tensorflow>=2.15.0
+vmdpy>=0.2
+EMD-signal>=1.6.0
+shap>=0.44.0
+yfinance>=0.2.0
+gymnasium>=0.29.0
+stable-baselines3>=2.2.0
+imbalanced-learn>=0.12.0
+onnxruntime>=1.17.0
+optuna>=3.5.0
+
+# 开发 / 打包
+pytest>=7.4.0
+pyinstaller>=6.0.0

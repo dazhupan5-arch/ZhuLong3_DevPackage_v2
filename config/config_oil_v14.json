@@ -1,0 +1,31 @@
+{
+  "training_symbol": "USOIL",
+  "broker_symbol": "USOIL",
+  "symbol": "USOIL",
+  "model_path": "models/USOIL/v14/xgb_v14.json",
+  "meta_path": "models/USOIL/v14/v14_meta.pkl",
+  "feature_columns": "models/USOIL/v14/feature_columns.json",
+  "imf_cache": "models/USOIL/imf_vmd.parquet",
+  "feature_set": "v14",
+  "long_threshold": 0.5,
+  "short_threshold": 0.54,
+  "cooldown_minutes": 90,
+  "cooldown_bars": 18,
+  "stop_loss_atr_mult_long": 1.5,
+  "stop_loss_atr_mult_short": 1.2,
+  "take_profit_atr_mult": 2.5,
+  "use_eia_filter": true,
+  "eia_blackout_before_minutes": 30,
+  "eia_blackout_after_minutes": 15,
+  "max_hold_bars": 18,
+  "max_daily_signals": 8,
+  "min_atr_pct": 0.0015,
+  "signal_expiry_minutes": 240,
+  "state_file": "data/realtime_state_oil.json",
+  "poll_seconds": 30,
+  "m5_bars": 2000,
+  "pipes": {
+    "data_pipe": "\\\\.\\pipe\\ZhuLong_Data",
+    "drawing_pipe": "\\\\.\\pipe\\ZhuLong_Drawing"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "version": "v14",
+  "symbol": "XAUUSD",
+  "passed": true,
+  "oos_win_rate": 0.71,
+  "oos_avg_rr": 1.65,
+  "oos_n_trades": 193,
+  "oos_max_drawdown": 0.042,
+  "oos_total_pnl_r": 156.6,
+  "val_precision": 0.721,
+  "val_long_precision": 0.614,
+  "val_short_precision": 0.824,
+  "thresholds": {
+    "long_thr": 0.7,
+    "short_thr": 0.7
+  },
+  "feature_set": "v13",
+  "n_features": 68,
+  "deployed_at": "2026-06-15T07:15:56.048748+00:00"
+}

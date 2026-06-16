@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Zhulong mark">
+  <path id="eye-upper" fill="#F5F5F7" d="M 36 64 C 40 50, 52 42, 64 42 C 76 42, 88 50, 92 64 L 36 64 Z"/>
+  <path id="eye-lower" fill="#181818" d="M 36 64 L 92 64 C 88 78, 76 86, 64 86 C 52 86, 40 78, 36 64 Z"/>
+  <path id="eye-rim" fill="none" stroke="#F5F5F7" stroke-width="1.6" d="M 36 64 C 40 50, 52 42, 64 42 C 76 42, 88 50, 92 64 C 88 78, 76 86, 64 86 C 52 86, 40 78, 36 64 Z"/>
+  <path id="pupil" fill="#181818" d="M 62 48 L 66 48 L 66 80 L 62 80 Z"/>
+</svg>

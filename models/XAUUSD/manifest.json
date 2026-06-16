@@ -1,0 +1,21 @@
+{
+  "symbol": "XAUUSD",
+  "kind": "production",
+  "acceptance_passed": true,
+  "acceptance_stage": "v14",
+  "classifier_mode": "xau_v14",
+  "feature_mode": "v13_tabular",
+  "long_threshold": 0.7,
+  "short_threshold": 0.7,
+  "model_version": "v14",
+  "trained_at": "2026-06-15",
+  "metrics": {
+    "test1_win_rate": 0.71,
+    "test1_short_win_rate": 0.664,
+    "test1_long_win_rate": 0.784,
+    "test1_n_trades": 193,
+    "test1_max_drawdown": 0.042,
+    "val_precision": 0.721
+  },
+  "note": "V14: 修复列映射 + 优化参数 + higher gain threshold, 2025 OOS 71% win"
+}

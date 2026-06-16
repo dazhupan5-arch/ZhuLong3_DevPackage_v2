@@ -1,0 +1,121 @@
+C:\Users\xiaomi\AppData\Local\Programs\Python\Python311\Lib\site-packages\sklearn\base.py:463: InconsistentVersionWarning: Trying to unpickle estimator StandardScaler from version 1.9.0 when using version 1.8.0. This might lead to breaking code or invalid results. Use at your own risk. For more info please refer to:
+https://scikit-learn.org/stable/model_persistence.html#security-maintainability-limitations
+  warnings.warn(
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781444631.442517   10108 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1781444636.176100   10108 port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+======================================================================
+  v3.1.7 CLOSED-LOOP AUDIT + Trade Analysis
+======================================================================
+
+  [OK] kn2.enabled=true
+  [OK] kn2.shadow_mode=false
+  [OK] kn2.min_confidence=0.48
+  [OK] primary=XAUUSD
+  [OK] model exists
+  [OK] causal_graph.json
+  [OK] filter_reason guard
+  [OK] scheduler guard
+
+Agent: kn2_mode=True shadow=False ready=True
+
+Simulating 500 bars (500¡ú738844)...
+
+
+======================================================================
+  TRADE-BY-TRADE ANALYSIS
+======================================================================
+
+  Bars: 496  |  Trades: 5
+
+  ¨X¨T¨T TRADE #1 ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  ¨U  Dir:     BUY
+  ¨U  Entry:   bar 738345 @ 4469.5
+  ¨U  Time:    2026-06-03 07:55:00
+  ¨U  Exit:    bar 738352 @ 4465.1
+  ¨U  Time:    2026-06-03 08:30:00
+  ¨U  Reason:  SL
+  ¨U  Hold:    7 bars = 0.6 hours
+  ¨U  PnL:     -0.10%
+  ¨U  MFE:     +0.09%
+  ¨U  MAE:     -0.10%
+  ¨U  Quality: [C] Intraday, loss
+  ¨U  Path:    -76.17% ¡ú -76.24%  (peak=-76.17%  trough=-76.24%)
+  ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+
+  ¨X¨T¨T TRADE #2 ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  ¨U  Dir:     BUY
+  ¨U  Entry:   bar 738353 @ 4467.0
+  ¨U  Time:    2026-06-03 08:35:00
+  ¨U  Exit:    bar 738375 @ 4456.2
+  ¨U  Time:    2026-06-03 10:25:00
+  ¨U  Reason:  SL
+  ¨U  Hold:    22 bars = 1.8 hours
+  ¨U  PnL:     -0.24%
+  ¨U  MFE:     +0.06%
+  ¨U  MAE:     -0.24%
+  ¨U  Quality: [B] Medium swing, loss
+  ¨U  Path:    -76.21% ¡ú -76.21%  (peak=-76.16%  trough=-76.22%)
+  ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+
+  ¨X¨T¨T TRADE #3 ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  ¨U  Dir:     BUY
+  ¨U  Entry:   bar 738376 @ 4461.6
+  ¨U  Time:    2026-06-03 10:30:00
+  ¨U  Exit:    bar 738392 @ 4444.9
+  ¨U  Time:    2026-06-03 11:50:00
+  ¨U  Reason:  SL
+  ¨U  Hold:    16 bars = 1.3 hours
+  ¨U  PnL:     -0.37%
+  ¨U  MFE:     +0.00%
+  ¨U  MAE:     -0.37%
+  ¨U  Quality: [C] Intraday, loss
+  ¨U  Path:    -76.17% ¡ú -76.15%  (peak=-76.14%  trough=-76.18%)
+  ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+
+  ¨X¨T¨T TRADE #4 ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  ¨U  Dir:     BUY
+  ¨U  Entry:   bar 738393 @ 4444.0
+  ¨U  Time:    2026-06-03 11:55:00
+  ¨U  Exit:    bar 738450 @ 4427.6
+  ¨U  Time:    2026-06-03 16:40:00
+  ¨U  Reason:  SL
+  ¨U  Hold:    57 bars = 4.8 hours
+  ¨U  PnL:     -0.37%
+  ¨U  MFE:     +0.49%
+  ¨U  MAE:     -0.37%
+  ¨U  Quality: [A] Long-term hold, loss
+  ¨U  Path:    -76.06% ¡ú -75.92%  (peak=-75.92%  trough=-76.07%)
+  ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+
+  ¨X¨T¨T TRADE #5 ¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+  ¨U  Dir:     BUY
+  ¨U  Entry:   bar 738451 @ 4437.2
+  ¨U  Time:    2026-06-03 16:45:00
+  ¨U  Exit:    bar 738844 @ 4461.6
+  ¨U  Time:    2026-06-05 03:35:00
+  ¨U  Reason:  SIM_END(open)
+  ¨U  Hold:    393 bars = 32.8 hours
+  ¨U  PnL:     +0.55%
+  ¨U  MFE:     +1.74%
+  ¨U  MAE:     -0.22%
+  ¨U  Quality: [A+] Trend-hold ¡ª major trend captured, profitable trend trade
+  ¨U  Path:    -75.85% ¡ú -75.66%  (peak=-75.60%  trough=-75.87%)
+  ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T
+
+  ©°©¤ SUMMARY ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+  ©¦  Trades:      5
+  ©¦  Wins:        1/5 (20%)
+  ©¦  Avg PnL:     -0.11%
+  ©¦  Total PnL:   -0.53%
+  ©¦  Avg hold:    99.0 bars = 8.2h
+  ©¦  Max hold:    393 bars = 32.8h
+  ©¸©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+
+  [A+] Super hold system ¡ª KN2 captured and held the trend
+
+  KN2: hold=0 long=496 short=0
+  Sig:  flat=0 buy=496 sell=0
+
+======================================================================

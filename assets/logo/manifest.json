@@ -1,0 +1,16 @@
+{
+  "source": "vector/zhulong-logo.svg",
+  "renderer": "skia-svgdom",
+  "design": "abstract-day-night-lens",
+  "myth": "烛龙睁眼为昼、闭眼为夜",
+  "elements": [
+    "split-lens",
+    "vertical-slit"
+  ],
+  "colors": {
+    "background": "#0A0A0A",
+    "gold": "#D4A820",
+    "night": "#141414"
+  },
+  "app_version": "3.1.6"
+}

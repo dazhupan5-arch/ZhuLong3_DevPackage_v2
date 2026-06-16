@@ -1,0 +1,51 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.ipynb_checkpoints/
+.venv/
+venv/
+
+# .NET 构建产物
+**/bin/
+**/obj/
+publish/
+output/
+monitor_output/
+
+# 日志与临时
+logs/
+*.log
+*.pid
+*.tmp
+*.swp
+~*
+_training_output.txt
+build_*.log
+corehost_trace.log
+
+# IDE
+.vs/
+.vscode/
+.idea/
+.cursor/
+
+# 安装包 (非源码)
+*.exe
+installer/redist/
+ZhuLong_Setup_v3.0.0.exe/
+
+# 大体积训练数据与模型（网盘/U 盘同步，勿 commit）
+data/*.npz
+data/**/*.parquet
+data/training/kn2_v16/
+models/*.pth
+models/*.onnx
+models/*.pkl
+models/tune_trials/
+models/backups/
+*.zip
+
+# 自身 zip 归档
+ZhuLong3_Migration_20260609.zip

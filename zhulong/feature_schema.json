@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "description": "M5 序列特征 30 维：22 基础 + 6 MTF + 2 保留填零",
+  "seq_len": 60,
+  "model_feature_dim": 30,
+  "base_columns": [
+    { "index": 0, "name": "return", "csharp": "FeatureCalculator", "formula": "(close-open)/open" },
+    { "index": 1, "name": "hl_ratio", "csharp": "FeatureCalculator", "formula": "(high-low)/open" },
+    { "index": 2, "name": "close_pos", "csharp": "FeatureCalculator", "formula": "(close-low)/(high-low)" },
+    { "index": 3, "name": "volume_change", "csharp": "FeatureCalculator", "formula": "volume / rolling_mean(volume,5)" },
+    { "index": 4, "name": "rsi", "csharp": "FeatureCalculator", "formula": "RSI(14)/100" },
+    { "index": 5, "name": "macd_line", "csharp": "FeatureCalculator", "formula": "(EMA12-EMA26)/close" },
+    { "index": 6, "name": "macd_signal", "csharp": "FeatureCalculator", "formula": "EMA9(macd_line)/close" },
+    { "index": 7, "name": "macd_hist", "csharp": "FeatureCalculator", "formula": "(macd_line-signal)/close" },
+    { "index": 8, "name": "atr", "csharp": "FeatureCalculator", "formula": "ATR(14)/close" },
+    { "index": 9, "name": "channel_width", "csharp": "FeatureCalculator", "formula": "(upper-lower)/close, upper=EMA30+3*ATR" },
+    { "index": 10, "name": "channel_position", "csharp": "FeatureCalculator", "formula": "(close-lower)/(upper-lower)" },
+    { "index": 11, "name": "above_upper", "csharp": "FeatureCalculator", "formula": "close>upper ? 1 : 0" },
+    { "index": 12, "name": "below_lower", "csharp": "FeatureCalculator", "formula": "close<lower ? 1 : 0" },
+    { "index": 13, "name": "ema_diff", "csharp": "FeatureCalculator", "formula": "(EMA30-EMA60)/EMA60" },
+    { "index": 14, "name": "price_ema30", "csharp": "FeatureCalculator", "formula": "(close-EMA30)/EMA30" },
+    { "index": 15, "name": "price_ema60", "csharp": "FeatureCalculator", "formula": "(close-EMA60)/EMA60" },
+    { "index": 16, "name": "ema30_slope", "csharp": "FeatureCalculator", "formula": "(EMA30-EMA30.shift5)/EMA30.shift5" },
+    { "index": 17, "name": "ema_cross", "csharp": "FeatureCalculator", "formula": "sign(EMA30-EMA60) 变化 clipped [-1,1]" },
+    { "index": 18, "name": "hour_sin", "csharp": "FeatureCalculator", "formula": "sin(2π*hour/24)" },
+    { "index": 19, "name": "hour_cos", "csharp": "FeatureCalculator", "formula": "cos(2π*hour/24)" },
+    { "index": 20, "name": "dow_sin", "csharp": "FeatureCalculator", "formula": "sin(2π*dayofweek/7)" },
+    { "index": 21, "name": "dow_cos", "csharp": "FeatureCalculator", "formula": "cos(2π*dayofweek/7)" }
+  ],
+  "mtf_columns": [
+    { "index": 22, "name": "m15_ema_bias", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" },
+    { "index": 23, "name": "m15_trend", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" },
+    { "index": 24, "name": "h1_rsi", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" },
+    { "index": 25, "name": "h1_macd_sign", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" },
+    { "index": 26, "name": "h1_ema_bias", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" },
+    { "index": 27, "name": "h1_atr_pct", "csharp": "FeatureMtfCalculator", "python": "compute_mtf_trend_features" }
+  ],
+  "reserved_columns": [
+    { "index": 28, "name": "_reserved_0", "value": 0 },
+    { "index": 29, "name": "_reserved_1", "value": 0 }
+  ],
+  "hourly_dim": 10,
+  "macro_dim": 8,
+  "python_source": "zhulong/feature_engine.py FEATURE_COLUMNS + MTF_COLUMNS"
+}

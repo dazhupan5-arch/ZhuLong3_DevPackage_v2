@@ -1,0 +1,84 @@
+{
+  "symbol": "XAUUSD",
+  "broker_symbol": "XAUUSD",
+  "model_path": "models/XAUUSD/v14/xgb_v14.json",
+  "meta_path": "models/XAUUSD/v14/v14_meta.pkl",
+  "feature_columns": "models/XAUUSD/v14/feature_columns.json",
+  "feature_set": "v14",
+  "imf_cache": "models/XAUUSD/imf_vmd.parquet",
+  "long_threshold": 0.7,
+  "short_threshold": 0.7,
+  "cooldown_long_minutes": 30,
+  "cooldown_short_minutes": 30,
+  "long_cooldown_bars": 3,
+  "short_cooldown_bars": 3,
+  "use_h1_trend_filter": false,
+  "stop_loss_atr_mult_long": 1.2,
+  "stop_loss_atr_mult_short": 1.2,
+  "take_profit_atr_mult": 2.0,
+  "trend_filter_short": {
+    "h1_ema20_less_than_h1_ema50": true,
+    "h1_rsi_less_than": 50
+  },
+  "use_break_even": false,
+  "max_hold_bars": 12,
+  "max_daily_signals": 8,
+  "min_atr_pct": 0.001,
+  "signal_expiry_minutes": 240,
+  "state_file": "data/realtime_state_xau.json",
+  "poll_seconds": 30,
+  "m5_bars": 2000,
+  "pipes": {
+    "data_pipe": "\\\\.\\pipe\\ZhuLong_Data",
+    "drawing_pipe": "\\\\.\\pipe\\ZhuLong_Drawing"
+  },
+  "structure_filter": {
+    "enabled": false,
+    "long_prob_threshold": 0.65,
+    "short_prob_threshold": 0.6,
+    "min_support_strength": 0.4,
+    "min_resistance_strength": 0.4,
+    "max_support_dist": 0.5,
+    "max_resistance_dist": 0.5,
+    "require_breakout_confirm": false,
+    "require_divergence": false,
+    "mtf_align_min": 0.05,
+    "allowed_hours": [
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16
+    ],
+    "analyzer": {
+      "periods": [
+        "M5",
+        "M15",
+        "H1",
+        "H4"
+      ],
+      "zigzag_atr_mult": 0.5,
+      "lookback": 200
+    }
+  },
+  "position_management": {
+    "trailing_stop": {
+      "enabled": true,
+      "activation_pct": 0.15,
+      "step_pct": 0.1,
+      "tighten_factor": 0.8
+    },
+    "partial_profit": {
+      "enabled": true,
+      "target1_pct": 0.25,
+      "ratio1": 0.5,
+      "target2_pct": 0.4,
+      "ratio2": 0.5
+    },
+    "time_stop_minutes": 240,
+    "profit_drawdown_ratio": 0.4
+  }
+}

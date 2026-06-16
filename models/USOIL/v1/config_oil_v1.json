@@ -1,0 +1,12 @@
+{
+  "long_threshold": 0.78,
+  "short_threshold": 0.8400000000000002,
+  "max_hold_bars": 18,
+  "cooldown_bars": 18,
+  "long_sl_atr": 1.5,
+  "short_sl_atr": 1.2,
+  "tp_atr": 2.5,
+  "eia_blackout_before_min": 30,
+  "eia_blackout_after_min": 15,
+  "passed": true
+}

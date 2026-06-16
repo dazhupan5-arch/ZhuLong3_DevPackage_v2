@@ -1,0 +1,5 @@
+{
+  "long_threshold": 0.8,
+  "short_threshold": 0.8,
+  "passed": false
+}

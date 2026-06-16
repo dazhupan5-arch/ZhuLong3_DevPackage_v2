@@ -1,0 +1,50 @@
+{
+  "XAUUSD": {
+    "symbol": "XAUUSD",
+    "horizon_bars": 6,
+    "risk_aversion": {
+      "intercept": 0.1369953685595821,
+      "macro_shock": 6.801833278014466,
+      "r2": 0.028552115821461888
+    },
+    "dollar_index": {
+      "intercept": -0.061890755904153556,
+      "macro_shock": -154.83499834996414,
+      "r2": 0.46593111392868347
+    },
+    "gold_demand": {
+      "intercept": -0.02198287272641251,
+      "risk_aversion": 0.3663892894783229,
+      "dollar_index": -0.20905572934452782
+    },
+    "price_change": {
+      "intercept": 0.011173570879669043,
+      "gold_demand": 0.6206580767410762,
+      "r2": 0.08157220479776894
+    }
+  },
+  "USOIL": {
+    "symbol": "USOIL",
+    "horizon_bars": 6,
+    "risk_aversion": {
+      "intercept": 0.11552680009564753,
+      "macro_shock": 1.0769184242555605,
+      "r2": 0.0015074836442957595
+    },
+    "dollar_index": {
+      "intercept": -0.004187167605971985,
+      "macro_shock": -159.54009130710384,
+      "r2": 0.4840958393717556
+    },
+    "oil_demand": {
+      "intercept": -0.007365762102716537,
+      "risk_aversion": 0.08684892017823549,
+      "dollar_index": -0.21308624432111367
+    },
+    "price_change": {
+      "intercept": 0.0009652210041717192,
+      "oil_demand": 0.6389419638722141,
+      "r2": 0.0927445381764237
+    }
+  }
+}

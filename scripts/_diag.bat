@@ -1,0 +1,9 @@
+@echo off
+cd /d D:\trae_projects\ZhuLong3_DevPackage_v2
+echo Test 1: torch alone...
+C:\Users\xiaomi\AppData\Local\Programs\Python\Python311\python.exe -c "import torch; print('OK1')" 2>&1
+echo Test 2: sys.path.insert then torch...
+C:\Users\xiaomi\AppData\Local\Programs\Python\Python311\python.exe -c "import sys; sys.path.insert(0, r'C:\Program Files\ZhuLong'); import torch; print('OK2')" 2>&1
+echo Test 3: sys.path.insert then check for DLL...
+C:\Users\xiaomi\AppData\Local\Programs\Python\Python311\python.exe -c "import sys; sys.path.insert(0, r'C:\Program Files\ZhuLong'); import os; print(os.environ.get('PATH','')[:200])" 2>&1
+echo Tests done.

@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+        <OutputType>WinExe</OutputType>
+        <UseWinUI>true</UseWinUI>
+        <EnableMsixTooling>true</EnableMsixTooling>
+        <WindowsPackageType>None</WindowsPackageType>
+        <WindowsAppSDKSelfContained>false</WindowsAppSDKSelfContained>
+        <Nullable>enable</Nullable>
+        <LangVersion>latest</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RootNamespace>ZhuLong.App</RootNamespace>
+        <AssemblyName>ZhuLong</AssemblyName>
+        <Version>3.1.6</Version>
+        <ApplicationIcon>Assets\zhulong.ico</ApplicationIcon>
+        <AssemblyTitle>烛龙 ZhuLong</AssemblyTitle>
+        <Product>烛龙 ZhuLong</Product>
+        <UseRidGraph>true</UseRidGraph>
+        <Platforms>x64</Platforms>
+        <ApplicationManifest>app.manifest</ApplicationManifest>
+        <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+        <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+        <PublishTrimmed>false</PublishTrimmed>
+        <PublishReadyToRun>false</PublishReadyToRun>
+        <RollForward>LatestPatch</RollForward>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <Content Include="Assets\zhulong.ico">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\app.ico">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\TitleLogo.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\StoreLogo.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Square150x150Logo.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Square44x44Logo.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\SplashScreen.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\SplashScreen.scale-200.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Wide310x150Logo.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\LockScreenLogo.scale-200.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Square150x150Logo.scale-200.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Square44x44Logo.scale-200.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+        <Content Include="Assets\Wide310x150Logo.scale-200.png">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
+    </ItemGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\ZhuLong.Core\ZhuLong.Core.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="CommunityToolkit.Mvvm" Version="8.3.2" />
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+        <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
+        <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.250907003" />
+        <PackageReference Include="Microsoft.Web.WebView2" Version="1.*" />
+        <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.*" />
+        <PackageReference Include="ScottPlot.WinUI" Version="5.0.55" />
+        <PackageReference Include="System.Management" Version="8.0.0" />
+        <PackageReference Include="Serilog.Extensions.Logging" Version="8.0.0" />
+        <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+        <PackageReference Include="pythonnet" Version="3.0.5" />
+        <PackageReference Include="H.NotifyIcon.WinUI" Version="2.3.2" />
+        <Manifest Include="$(ApplicationManifest)" />
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <ProjectCapability Include="Msix" />
+    </ItemGroup>
+
+    <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+        <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+    </PropertyGroup>
+
+    <Target Name="GenerateAppIcons" BeforeTargets="PrepareForBuild" Condition="'$(GenerateAppIcons)' != 'false'">
+        <Exec Command="py -3 &quot;$(MSBuildProjectDirectory)\..\..\scripts\generate_app_icons.py&quot;" IgnoreExitCode="false" />
+    </Target>
+
+    <!-- MT5 桥接文件：随 build/publish 输出到 mql5\，烛龙启动时自动部署到 MT5 -->
+    <ItemGroup>
+        <Content Include="$(MSBuildThisFileDirectory)..\..\mql5\Libraries\ZhuLongMt5Pipe.dll" Link="mql5\Libraries\ZhuLongMt5Pipe.dll" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="$(MSBuildThisFileDirectory)..\..\mql5\ZhuLongIndicator.mq5" Link="mql5\ZhuLongIndicator.mq5" CopyToOutputDirectory="PreserveNewest" />
+        <Content Include="$(MSBuildThisFileDirectory)..\..\mql5\ZhuLongIndicator.ex5" Link="mql5\ZhuLongIndicator.ex5" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(MSBuildThisFileDirectory)..\..\mql5\ZhuLongIndicator.ex5')" />
+        <Content Include="$(MSBuildThisFileDirectory)..\..\mql5\Libraries\ZhuLong_部署说明.txt" Link="mql5\Libraries\ZhuLong_部署说明.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(MSBuildThisFileDirectory)..\..\mql5\Libraries\ZhuLong_部署说明.txt')" />
+        <Content Include="$(MSBuildThisFileDirectory)..\..\mql5\Libraries\README_ZhuLongMt5Pipe.txt" Link="mql5\Libraries\README_ZhuLongMt5Pipe.txt" CopyToOutputDirectory="PreserveNewest" Condition="Exists('$(MSBuildThisFileDirectory)..\..\mql5\Libraries\README_ZhuLongMt5Pipe.txt')" />
+    </ItemGroup>
+</Project>

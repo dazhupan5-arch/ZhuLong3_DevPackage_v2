@@ -1,0 +1,22 @@
+{
+  "forecast": {
+    "pred_long": 21860,
+    "pred_short": 20536,
+    "pred_flat": 28405,
+    "trade_long": 21860,
+    "trade_short": 20536
+  },
+  "backtest": {
+    "win_rate": 0.5791974656810982,
+    "avg_rr": 1.5247485271334476,
+    "expectancy": 0.39012477840389087,
+    "n_trades": 1894,
+    "max_daily_signals": 8,
+    "max_drawdown": 0.021713952874479525,
+    "total_pnl_r": 738.8963302969694,
+    "n_long": 1011,
+    "n_short": 883,
+    "long_win_rate": 0.5964391691394659,
+    "short_win_rate": 0.5594563986409966
+  }
+}

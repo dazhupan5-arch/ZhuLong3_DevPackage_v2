@@ -1,0 +1,142 @@
+{
+  "acceptance_stage": "v16",
+  "passed": false,
+  "failures": [
+    "macro_f1_below_threshold",
+    "oos_win_rate_below_threshold"
+  ],
+  "sections": {
+    "training": {
+      "ok": false,
+      "detail": {
+        "training_rows": 673448,
+        "val_accuracy": 0.49591161971133857,
+        "macro_f1": 0.410272276643247
+      },
+      "failures": [
+        "macro_f1_below_threshold"
+      ]
+    },
+    "onnx": {
+      "ok": true,
+      "detail": {
+        "onnx_path": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\horizon_v16.onnx",
+        "onnx_probe_probs": [
+          0.28733086585998535,
+          0.601280689239502,
+          0.11138840019702911
+        ]
+      },
+      "failures": []
+    },
+    "oos": {
+      "ok": false,
+      "detail": {
+        "forecast": {
+          "pred_long": 20416,
+          "pred_short": 20975,
+          "pred_flat": 29410,
+          "trade_long": 20416,
+          "trade_short": 20975
+        },
+        "backtest": {
+          "win_rate": 0.5425867507886435,
+          "avg_rr": 1.4956180606411922,
+          "expectancy": 0.3115225788921051,
+          "n_trades": 1902,
+          "max_daily_signals": 8,
+          "max_drawdown": 0.02231047267402124,
+          "total_pnl_r": 593.3957304163241,
+          "n_long": 1009,
+          "n_short": 893,
+          "long_win_rate": 0.5480673934588701,
+          "short_win_rate": 0.5363941769316909
+        },
+        "forecast_side_ratio": 1.027380485893417,
+        "trade_side_ratio": 1.12989921612542,
+        "forecast_trade_coherence": 0.04595201855475828
+      },
+      "failures": [
+        "oos_win_rate_below_threshold"
+      ]
+    },
+    "lockbox_march": {
+      "ok": true,
+      "detail": {
+        "forecast": {
+          "pred_long": 478,
+          "pred_short": 792,
+          "pred_flat": 462,
+          "trade_long": 478,
+          "trade_short": 792
+        },
+        "backtest": {
+          "win_rate": 0.5714285714285714,
+          "avg_rr": 1.3774442565670488,
+          "expectancy": 0.3132027709754671,
+          "n_trades": 56,
+          "max_daily_signals": 8,
+          "max_drawdown": 0.20687271423282963,
+          "total_pnl_r": 17.53935517462616,
+          "n_long": 37,
+          "n_short": 19,
+          "long_win_rate": 0.5405405405405406,
+          "short_win_rate": 0.631578947368421
+        }
+      },
+      "failures": []
+    },
+    "lockbox_june": {
+      "ok": true,
+      "detail": {
+        "pred_counts": {
+          "short": 269,
+          "flat": 6,
+          "long": 1
+        },
+        "direction_match_rate": 0.7885714285714286,
+        "eval_bars": 276
+      },
+      "failures": []
+    },
+    "agent": {
+      "ok": true,
+      "detail": {
+        "agent_tick_ok": true,
+        "architecture": "v16",
+        "cognition_direction": "flat",
+        "action": "hold",
+        "knowledge_ready": true
+      },
+      "failures": []
+    },
+    "rl_coherence": {
+      "ok": true,
+      "detail": {
+        "coherence": 1.0,
+        "samples": 1,
+        "mismatches": []
+      },
+      "failures": []
+    },
+    "rl_model": {
+      "ok": true,
+      "detail": {
+        "rl_model": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\rl_agent_xau.zip",
+        "rl_meta": {
+          "symbol": "XAUUSD",
+          "timesteps": 800000,
+          "model": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\rl_agent_xau.zip",
+          "state_scaler": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\agent_state_scaler_xauusd.json",
+          "knowledge_model": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\horizon_v16.onnx",
+          "architecture": "v16"
+        },
+        "rl_metrics_log": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\logs\\training\\rl_metrics_XAUUSD.jsonl",
+        "rl_eval_win_rate": 0.5425867507886435,
+        "rl_eval_trades_sampled": 1902,
+        "rl_eval_fallback": "oos_backtest"
+      },
+      "failures": []
+    }
+  }
+}

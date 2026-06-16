@@ -1,0 +1,138 @@
+{
+  "app": {
+    "name": "烛龙 ZhuLong",
+    "version": "3.1.6"
+  },
+  "model": {
+    "seq_len": 60,
+    "pred_horizon": 6,
+    "feature_dim_5min": 30,
+    "hourly_feature_dim": 10,
+    "macro_feature_dim": 8,
+    "transformer_mask_ratio": 0.15,
+    "historical_avg_gain_window": 100,
+    "use_xgb_expected_return": false,
+    "default_symbols": [
+      "XAUUSD"
+    ],
+    "primary_symbol": "XAUUSD",
+    "infer_all_ready_symbols": false
+  },
+  "signal_filters": {
+    "prob_threshold": 0.7,
+    "min_expected_return": 0.05,
+    "min_risk_reward": 1.0,
+    "entry_offset_buy_min": -0.3,
+    "entry_offset_buy_max": -0.05,
+    "entry_offset_sell_min": 0.05,
+    "entry_offset_sell_max": 0.3,
+    "cooldown_minutes": 30,
+    "min_volatility_atr": 0.2,
+    "max_volatility_atr": 2.0,
+    "signal_expiry_minutes": 240
+  },
+  "signal_geometry": {
+    "initial_stop_loss_atr_mult": 1.2,
+    "initial_take_profit_atr_mult": 2.0,
+    "short_stop_loss_atr_mult": 1.2
+  },
+  "position_management": {
+    "trailing_stop_enabled": true,
+    "trailing_use_atr_mode": true,
+    "trailing_breakeven_atr_mult": 1.0,
+    "trailing_tighten_atr_mult": 1.5,
+    "trailing_step_atr_mult": 0.5,
+    "trailing_structure_buffer_atr_mult": 0.3,
+    "trailing_swing_lookback_bars": 24,
+    "trailing_use_structure_constraint": true,
+    "agent_trailing_widen_factor": 1.5,
+    "trailing_activation_pct": 0.25,
+    "trailing_step_pct": 0.1,
+    "trailing_tighten_factor": 0.8,
+    "min_hold_seconds_before_trailing": 60,
+    "min_peak_profit_pct_for_drawdown": 0.35,
+    "min_hold_seconds_before_profit_drawdown": 180,
+    "entry_fill_max_wait_seconds": 0,
+    "partial_profit_enabled": true,
+    "partial_target1_pct": 0.25,
+    "partial_ratio1": 0.5,
+    "partial_target2_pct": 0.4,
+    "partial_ratio2": 0.5,
+    "max_hold_minutes": 60,
+    "max_drawdown_ratio": 0.4,
+    "use_model_exit": false,
+    "match_price_tolerance_points": 5,
+    "match_time_window_seconds": 60,
+    "order_retry_max": 3
+  },
+  "macro": {
+    "enabled": true,
+    "force_silence": false,
+    "force_silence_events": [
+      "FOMC",
+      "Nonfarm Payrolls"
+    ],
+    "silence_before_minutes": 30,
+    "silence_after_minutes": 15,
+    "reload_interval_hours": 24,
+    "calendar": {
+      "provider": "auto",
+      "fetch_on_startup": true,
+      "daily_refresh_hour_utc": 0,
+      "lookahead_hours": 168,
+      "fallback_html_enabled": true
+    },
+    "fred": {
+      "series": [
+        "GDP",
+        "UNRATE",
+        "CPIAUCSL",
+        "FEDFUNDS",
+        "T10YIE"
+      ],
+      "json_path": "data/fred_latest.json"
+    },
+    "sentiment": {
+      "provider": "api2d",
+      "base_url": "https://oa.api2d.net/v1/chat/completions",
+      "model": "gpt-3.5-turbo",
+      "json_path": "data/sentiment.json"
+    }
+  },
+  "atr_channel": {
+    "period": 14,
+    "multiplier": 3.0,
+    "ema_fast": 30,
+    "ema_slow": 60
+  },
+  "symbol_mapping": {},
+  "mt5": {
+    "deviation": 20,
+    "comment_prefix": "ZhuLong"
+  },
+  "pipes": {
+    "data_pipe": "\\\\.\\pipe\\ZhuLong_Data",
+    "drawing_pipe": "\\\\.\\pipe\\ZhuLong_Drawing"
+  },
+  "database": {
+    "filename": "trading.db"
+  },
+  "logging": {
+    "level": "INFO"
+  },
+  "risk_guard": {
+    "enabled": true,
+    "max_daily_loss_pct": 3.0,
+    "max_concurrent_positions": 4,
+    "max_pending_signals": 10,
+    "symbol_cooldown_minutes": 30
+  },
+  "multi_strategy": {
+    "enabled": true,
+    "config_path": "config/config_multi_strategy.json"
+  },
+  "trading_agent": {
+    "enabled": true,
+    "config_path": "config/config_agent.json"
+  }
+}

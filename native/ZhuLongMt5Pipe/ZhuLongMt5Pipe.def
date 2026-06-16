@@ -1,0 +1,6 @@
+LIBRARY ZhuLongMt5Pipe
+EXPORTS
+    ZhuLongPipeConnectV1
+    ZhuLongPipeWriteLineV1
+    ZhuLongPipeReadLineV1
+    ZhuLongPipeDisconnectV1

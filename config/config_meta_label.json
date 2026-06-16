@@ -1,0 +1,12 @@
+{
+  "enabled": true,
+  "threshold": 0.6,
+  "model_path": "models/XAUUSD/meta_label/meta_label.pkl",
+  "meta_model_path": "models/XAUUSD/meta_label/meta_label.pkl",
+  "meta_config_path": "models/XAUUSD/meta_label/meta_config.pkl",
+  "meta_threshold": 0.6,
+  "primary_model_path": "models/XAUUSD/triple_barrier/xgb_triple_v3.json",
+  "primary_long_threshold": 0.5,
+  "primary_short_threshold": 0.5,
+  "description": "主模型出信号后，元模型置信度≥threshold 才执行"
+}

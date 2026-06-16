@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<UserControl
+    x:Class="ZhuLong.App.Views.ParamsPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="16" MaxWidth="720">
+            <TextBlock FontSize="18" FontWeight="SemiBold" Text="调参" />
+            <TextBlock Foreground="Gray" TextWrapping="WrapWholeWords"
+                       Text="编辑策略参数并写入 %APPDATA%\ZhuLong\config.json。信号过滤与持仓管理保存后立即生效；修改 ATR/EMA 周期后请同步 MT5 指标输入并重启运行。" />
+
+            <Expander Header="信号过滤 (signal_filters)" IsExpanded="True">
+                <Grid ColumnSpacing="12" RowSpacing="8" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="置信度阈值 prob_threshold" />
+                        <NumberBox x:Name="NumProbThreshold" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="最小预期收益 min_expected_return" />
+                        <NumberBox x:Name="NumMinExpectedReturn" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="最小盈亏比 min_risk_reward" />
+                        <NumberBox x:Name="NumMinRiskReward" SmallChange="0.1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="冷却分钟 cooldown_minutes" />
+                        <NumberBox x:Name="NumCooldownMinutes" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="信号过期 signal_expiry_minutes" />
+                        <NumberBox x:Name="NumSignalExpiry" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="波动率 ATR 下限/上限" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <NumberBox x:Name="NumMinVolAtr" Width="120" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                            <NumberBox x:Name="NumMaxVolAtr" Width="120" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Expander>
+
+            <Expander Header="初始 SL/TP (signal_geometry)" IsExpanded="True">
+                <Grid ColumnSpacing="12" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="止损 ATR 倍数 initial_stop_loss_atr_mult" />
+                        <NumberBox x:Name="NumSlAtrMult" SmallChange="0.1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" Spacing="4">
+                        <TextBlock Text="止盈 ATR 倍数 initial_take_profit_atr_mult" />
+                        <NumberBox x:Name="NumTpAtrMult" SmallChange="0.1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                </Grid>
+            </Expander>
+
+            <Expander Header="持仓管理 (position_management)" IsExpanded="True">
+                <Grid ColumnSpacing="12" RowSpacing="8" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="移动止损激活% trailing_activation_pct" />
+                        <NumberBox x:Name="NumTrailAct" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="移动止损步长% trailing_step_pct" />
+                        <NumberBox x:Name="NumTrailStep" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="分批1 目标%/比例%" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <NumberBox x:Name="NumPartial1Pct" Width="120" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                            <NumberBox x:Name="NumPartial1Ratio" Width="120" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="分批2 目标%/比例%" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <NumberBox x:Name="NumPartial2Pct" Width="120" SmallChange="0.01" SpinButtonPlacementMode="Inline" />
+                            <NumberBox x:Name="NumPartial2Ratio" Width="120" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="最大持仓分钟 max_hold_minutes" />
+                        <NumberBox x:Name="NumMaxHold" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="利润回撤比 max_drawdown_ratio" />
+                        <NumberBox x:Name="NumMaxDd" SmallChange="0.05" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="3" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="匹配容差点数 / 改单重试" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <NumberBox x:Name="NumMatchTol" Width="120" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                            <NumberBox x:Name="NumOrderRetry" Width="120" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </StackPanel>
+                    <CheckBox Grid.Row="3" Grid.Column="1" x:Name="ChkModelExit" Content="模型辅助出场 use_model_exit" VerticalAlignment="Bottom" />
+                </Grid>
+            </Expander>
+
+            <Expander Header="ATR 通道 / 指标同步 (atr_channel)" IsExpanded="False">
+                <Grid ColumnSpacing="12" RowSpacing="8" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Grid.Row="0" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="ATR 周期 period" />
+                        <NumberBox x:Name="NumAtrPeriod" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="0" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="通道倍数 multiplier" />
+                        <NumberBox x:Name="NumAtrMult" SmallChange="0.1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="EMA 快/慢 ema_fast / ema_slow" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <NumberBox x:Name="NumEmaFast" Width="120" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                            <NumberBox x:Name="NumEmaSlow" Width="120" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </StackPanel>
+                </Grid>
+            </Expander>
+
+            <Expander Header="风控 (risk_guard)" IsExpanded="True">
+                <Grid ColumnSpacing="12" RowSpacing="8" Padding="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <CheckBox Grid.Row="0" Grid.ColumnSpan="2" x:Name="ChkRiskEnabled" Content="启用风控 risk_guard.enabled" />
+                    <StackPanel Grid.Row="1" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="日损上限% max_daily_loss_pct" />
+                        <NumberBox x:Name="NumMaxDailyLoss" SmallChange="0.5" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="最大持仓 max_concurrent_positions" />
+                        <NumberBox x:Name="NumMaxPositions" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="0" Spacing="4">
+                        <TextBlock Text="待匹配信号上限 max_pending_signals" />
+                        <NumberBox x:Name="NumMaxPending" SmallChange="1" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                    <StackPanel Grid.Row="2" Grid.Column="1" Spacing="4">
+                        <TextBlock Text="品种冷却(分) symbol_cooldown_minutes" />
+                        <NumberBox x:Name="NumSymbolCooldown" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                    </StackPanel>
+                </Grid>
+            </Expander>
+
+            <Expander Header="宏观静默 / MT5" IsExpanded="False">
+                <StackPanel Spacing="8" Padding="0,8,0,0">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4">
+                            <TextBlock Text="重大数据前静默(分) silence_before_minutes" />
+                            <NumberBox x:Name="NumSilenceBefore" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Spacing="4">
+                            <TextBlock Text="重大数据后静默(分) silence_after_minutes" />
+                            <NumberBox x:Name="NumSilenceAfter" SmallChange="5" SpinButtonPlacementMode="Inline" />
+                        </StackPanel>
+                    </Grid>
+                    <CheckBox x:Name="ChkMacroEnabled" Content="启用宏观因子 macro.enabled" />
+                    <CheckBox x:Name="ChkForceSilence" Content="强制宏观静默 macro.force_silence" />
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="MT5 滑点 deviation" />
+                        <NumberBox x:Name="NumDeviation" SmallChange="1" SpinButtonPlacementMode="Inline" Width="160" HorizontalAlignment="Left" />
+                    </StackPanel>
+                </StackPanel>
+            </Expander>
+
+            <StackPanel Spacing="4">
+                <TextBlock FontWeight="SemiBold" Text="品种映射 symbol_mapping" />
+                <TextBlock Foreground="Gray" Text="格式：标准符号=券商符号，逗号分隔。例 XAUUSD=XAUUSDm,USOIL=USOIL" TextWrapping="WrapWholeWords" />
+                <TextBox x:Name="TxtSymbolMapping" AcceptsReturn="False" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button x:Name="BtnSaveParams" Content="保存参数" Click="OnSaveClick" />
+                <Button x:Name="BtnReloadParams" Content="重新载入" Click="OnReloadClick" />
+            </StackPanel>
+            <TextBlock x:Name="TxtParamsMessage" Foreground="Gray" TextWrapping="WrapWholeWords" />
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

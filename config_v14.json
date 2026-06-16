@@ -1,0 +1,26 @@
+{
+  "symbol": "XAUUSD",
+  "model_path": "models/XAUUSD/v14/xgb_v14.json",
+  "meta_path": "models/XAUUSD/v14/v14_meta.pkl",
+  "feature_columns": "models/XAUUSD/v14/feature_columns.json",
+  "imf_cache": "models/XAUUSD/imf_vmd.parquet",
+  "long_threshold": 0.70,
+  "short_threshold": 0.70,
+  "long_cooldown_bars": 6,
+  "short_cooldown_bars": 6,
+  "long_cooldown_minutes": 30,
+  "short_cooldown_minutes": 30,
+  "max_daily_signals": 8,
+  "long_sl_atr": 1.2,
+  "short_sl_atr": 1.2,
+  "tp_atr": 2.0,
+  "min_atr_pct": 0.001,
+  "signal_expiry_minutes": 240,
+  "poll_seconds": 30,
+  "m5_bars": 2000,
+  "pipes": {
+    "data_pipe": "\\\\.\\pipe\\ZhuLong_Data",
+    "drawing_pipe": "\\\\.\\pipe\\ZhuLong_Drawing"
+  },
+  "state_file": "data/v14_realtime_state.json"
+}

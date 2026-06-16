@@ -1,0 +1,46 @@
+{
+  "passed": true,
+  "acceptance_stage": "v15",
+  "metrics": {
+    "validation": {
+      "precision": 0.5033921302578019,
+      "recall": 0.9128743961352657,
+      "long_precision": 0.38976377952755903,
+      "short_precision": 0.7554585152838428,
+      "n_signals": 737
+    },
+    "test1": {
+      "win_rate": 0.6452702702702703,
+      "avg_rr": 1.6405474610506665,
+      "expectancy": 0.6129582671001896,
+      "n_trades": 296,
+      "max_daily_signals": 8,
+      "max_drawdown": 0.03376481221658823,
+      "total_pnl_r": 181.4356470616562,
+      "n_long": 153,
+      "n_short": 143,
+      "long_win_rate": 0.6143790849673203,
+      "short_win_rate": 0.6783216783216783
+    },
+    "stress": {},
+    "thresholds": {
+      "long_threshold": 0.64,
+      "short_threshold": 0.68,
+      "weighted_precision": 0.5033921302578019,
+      "long_precision": 0.38976377952755903,
+      "short_precision": 0.7554585152838428,
+      "n_signals": 737,
+      "n_long": 508,
+      "n_short": 229,
+      "signals_per_day": 2.0191972906895996
+    },
+    "stress_pool": {
+      "stress_days": 30,
+      "evaluated_days": 30,
+      "gt_short_argmax_hit_mean": 0.6116865794892207,
+      "gt_long_argmax_hit_mean": 0.6695926353275257
+    },
+    "model_version": "v15"
+  },
+  "failures": []
+}

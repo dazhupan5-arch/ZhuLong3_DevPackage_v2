@@ -1,0 +1,11 @@
+{
+  "hidden_dim": 128,
+  "num_layers": 2,
+  "embed_dim": 64,
+  "num_actions": 3,
+  "market_dim": 98,
+  "pos_dim": 6,
+  "val_loss": 0.7349347253235019,
+  "scenario_trained": false,
+  "scenario_horizons": []
+}

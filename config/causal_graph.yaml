@@ -1,0 +1,42 @@
+# 烛龙简化结构因果模型（SCM）— 黄金 / 原油共用骨架，系数按品种分别拟合
+version: 1
+symbols:
+  XAUUSD:
+    nodes:
+      - macro_shock
+      - risk_aversion
+      - dollar_index
+      - gold_demand
+      - price_change
+    edges:
+      - parent: macro_shock
+        child: risk_aversion
+      - parent: macro_shock
+        child: dollar_index
+      - parent: risk_aversion
+        child: gold_demand
+      - parent: dollar_index
+        child: gold_demand
+      - parent: gold_demand
+        child: price_change
+    # 30 分钟前瞻收益率（百分比）
+    horizon_bars: 6
+  USOIL:
+    nodes:
+      - macro_shock
+      - risk_aversion
+      - dollar_index
+      - oil_demand
+      - price_change
+    edges:
+      - parent: macro_shock
+        child: risk_aversion
+      - parent: macro_shock
+        child: dollar_index
+      - parent: risk_aversion
+        child: oil_demand
+      - parent: dollar_index
+        child: oil_demand
+      - parent: oil_demand
+        child: price_change
+    horizon_bars: 6

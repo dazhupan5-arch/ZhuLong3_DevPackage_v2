@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "ZhuLong.App (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "ZhuLong.App (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

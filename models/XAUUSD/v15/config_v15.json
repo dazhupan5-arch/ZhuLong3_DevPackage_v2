@@ -1,0 +1,7 @@
+{
+  "long_threshold": 0.64,
+  "short_threshold": 0.68,
+  "passed": true,
+  "n_features": 68,
+  "model_version": "v15"
+}

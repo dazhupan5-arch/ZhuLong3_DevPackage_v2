@@ -1,0 +1,6 @@
+{
+  "long_threshold": 0.7,
+  "short_threshold": 0.7,
+  "passed": true,
+  "n_features": 68
+}

@@ -1,0 +1,90 @@
+======================================================================
+  KN2 DEEP AUDIT ！ inference_cli subprocess
+  Data: 738,845 bars
+======================================================================
+
+--- 0. ENV ---
+  [OK] kn2.enabled
+  [OK] kn2.shadow=false
+  [OK] primary=XAUUSD
+  [OK] model on disk
+  [OK] KN1 onnx
+  [OK] causal_graph.json
+
+--- 1. agent_validate ---
+  (8.6s) ok=True err=
+  [OK] validate ok
+  [OK] kn2_enabled
+  [OK] kn2_ready
+  [OK] kn2_dictator
+
+--- 2. SINGLE TICK ---
+  (8.8s) ok=True
+  [OK] tick ok
+  [OK] has results
+  [OK] kn2_mode
+  [OK] kn2_ready
+  [OK] kn2_dictator
+  [OK] action present
+  [OK] signal present
+  [OK] direction valid ！ flat
+  [OK] strategy=rl_agent ！ rl_agent
+  [OK] metadata.kn2 exists
+  trace: act=long conf=0.5215 sz=0.9987 dictator=True
+  [OK] metadata.kn2.dictator
+
+--- 3. MULTI-BAR (20 sequential ticks) ---
+  20 ticks: hold=0 long=20 short=0
+  [BUG!] not all same class
+  [OK] some long
+  [BUG!] some short
+  [BUG!] some hold
+  trades=7 holds=13
+  conf: min=0.523 max=0.525 avg=0.524
+
+--- 4. POSITION SCENARIOS ---
+  No pos:     action=long
+  Long+20b:   action=long
+  Long-3b:    action=long
+  Short:      action=long
+
+--- 5. SIGNAL FILTER COMPATIBILITY ---
+  prob_threshold=0.7 min_rr=1.0
+  max_concurrent=4 sym_cooldown=30min
+  [WARN] KN2 strategy='rl_agent' bypasses prob_threshold filter (only checks 'ai_model')
+  [WARN] symbol_cooldown=30min blocks KN2 repeat signals
+
+--- 6. BUG SCAN ---
+  [WARN] position_size from KN2 stored but never used in _action_to_signal
+  [WARN] Scheduler.apply_action_bias runs AFTER KN2 dictator ！ can override
+  [WARN] Scheduler.on_tick meta_result can override KN2 dictator action
+
+--- 7. MARKET SEGMENTS ---
+  bull  : action=long  dir=flat conf=0.525
+  range : action=long  dir=buy  conf=0.525
+  2025  : action=long  dir=buy  conf=0.524
+
+--- 8. DEDUP CHECK ---
+  [OK] both ticks produce results ！ fresh AgentEngine each call ！ OK
+
+======================================================================
+  SUMMARY
+======================================================================
+  [BUG!] not all same class
+  [BUG!] some short
+  [BUG!] some hold
+
+  23/26 checks passed
+
+  BUGS (3):
+    - not all same class: 
+    - some short: 
+    - some hold: 
+
+  WARNINGS (5):
+    1. KN2 strategy='rl_agent' bypasses prob_threshold filter (only checks 'ai_model')
+    2. symbol_cooldown=30min blocks KN2 repeat signals
+    3. position_size from KN2 stored but never used in _action_to_signal
+    4. Scheduler.apply_action_bias runs AFTER KN2 dictator ！ can override
+    5. Scheduler.on_tick meta_result can override KN2 dictator action
+======================================================================

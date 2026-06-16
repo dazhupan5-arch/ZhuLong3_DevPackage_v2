@@ -1,0 +1,14 @@
+{
+  "symbol": "XAUUSD",
+  "deployed_model": "R5_fallback",
+  "acceptance_passed": false,
+  "backtest_reference": {
+    "winrate": 0.36,
+    "profit_factor": 1.352461577992917,
+    "max_drawdown": 0.001226488967303655,
+    "trades": 25
+  },
+  "model_path": "D:\\ZhuLong3_Migration_20260609.zip\\models\\rl_agent_xau_r5.zip",
+  "deployed_at": "2026-06-12 01:27:41 UTC",
+  "note": "R11 cycle ended without PASS; deployed best historical R5 (PF 1.35)"
+}
