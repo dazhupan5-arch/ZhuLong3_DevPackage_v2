@@ -22,6 +22,7 @@ from zhulong.agent.agent_scheduler import AgentScheduler
 from zhulong.agent.causal_inference import CausalInference, fuse_knowledge_with_causal
 from zhulong.agent.cognition import CognitionEngine
 from zhulong.agent.knowledge_net import KnowledgeNetInference
+from zhulong.agent.kn2_location_labels import compute_pos_in_range, evaluate_structure_entry_gate
 from zhulong.agent.rl_agent import RlAgent, resolve_knowledge_paths, resolve_rl_model_path
 from zhulong.agent.state_builder import (
     StateBuilder,
@@ -76,6 +77,19 @@ class TradingAgent:
             self.trader_mind = TraderMind(config)
             logger.info("Architecture v16: Structure → Horizon → TraderMind")
 
+        eg = config.get("execution_gates") or {}
+        self.structure_location_gate = bool(eg.get("structure_location_gate", True))
+        self.block_ranging_conflict = bool(eg.get("block_ranging_conflict", True))
+        self.horizon_lock_direction = bool(eg.get("horizon_lock_direction", False))
+
+        kn2_cfg = config.get("kn2") or {}
+        self.kn2_enabled = bool(kn2_cfg.get("enabled", False))
+        self.kn2_shadow = bool(kn2_cfg.get("shadow_mode", False))
+        self.kn2_min_confidence = float(kn2_cfg.get("min_confidence", 0.48))
+        self._kn2 = None
+        if self.arch_version == "v16" and (self.kn2_enabled or self.kn2_shadow):
+            self._load_kn2(kn2_cfg)
+
         rl_cfg = config.get("rl") or {}
         self.rl_deterministic = bool((rl_cfg.get("inference") or {}).get("deterministic", True))
         self._knowledge: KnowledgeNetInference | None = None
@@ -109,6 +123,62 @@ class TradingAgent:
 
         if self.scheduler is not None and self._rl_model is not None:
             self.scheduler.attach_policy(self._rl)
+
+    def _load_kn2(self, kn2_cfg: dict[str, Any]) -> None:
+        rel = str(kn2_cfg.get("model_path", "models/kn2_trader_v16.pth"))
+        model_path = resolve_bundled_data_path(rel)
+        if not model_path.is_file():
+            logger.warning("KN2 模型未找到 %s（shadow/live 跳过）", model_path)
+            return
+        try:
+            from zhulong.agent.knowledge_net_kn2 import KN2Inference
+
+            self._kn2 = KN2Inference(model_path, market_dim=65)
+            if self._kn2.is_ready:
+                logger.info("KN2 已加载 enabled=%s shadow=%s", self.kn2_enabled, self.kn2_shadow)
+            else:
+                self._kn2 = None
+        except Exception as ex:
+            logger.warning("KN2 加载失败: %s", ex)
+            self._kn2 = None
+
+    def _apply_v16_execution_gates(
+        self,
+        thought: Any,
+        v16_plan: Any,
+        cognition_dir: str,
+        struct: np.ndarray,
+        m5: pd.DataFrame,
+        decision_idx: int,
+    ) -> None:
+        """合并 TraderMind / 认知 / 结构位置门控。"""
+        plan_ok = bool(v16_plan.should_trade) if v16_plan is not None else True
+        cog_ok = bool(thought.should_trade)
+        merged = plan_ok and cog_ok
+
+        if self.block_ranging_conflict and thought.regime in ("ranging", "choppy"):
+            conflicts = thought.conflicts or []
+            if cognition_dir in ("long", "short") and any("震荡市" in str(c) for c in conflicts):
+                merged = False
+                thought.risk_warnings = list(thought.risk_warnings or []) + ["震荡市方向冲突 → 不入场"]
+
+        if merged and self.structure_location_gate and cognition_dir in ("long", "short"):
+            closes = m5["close"].values.astype(np.float32)
+            pos_arr = compute_pos_in_range(closes)
+            pos = float(pos_arr[decision_idx]) if decision_idx < len(pos_arr) else 0.5
+            ok, reason = evaluate_structure_entry_gate(
+                np.asarray(struct, dtype=np.float32),
+                pos,
+                str(thought.regime or ""),
+                cognition_dir,
+            )
+            if not ok:
+                merged = False
+                thought.risk_warnings = list(thought.risk_warnings or []) + [reason]
+
+        thought.should_trade = merged
+        if v16_plan is not None and not merged and v16_plan.block_reason:
+            thought.risk_warnings = list(thought.risk_warnings or []) + [str(v16_plan.block_reason)]
 
     def _symbol_cfg(self, symbol: str) -> dict[str, Any]:
         return (self.config.get("symbols") or {}).get(symbol.strip().upper()) or {}
@@ -428,27 +498,33 @@ class TradingAgent:
 
         v16_plan = None
         v16_forecast = None
+        v16_snapshot = None
+        market_feat_kn2 = None
         if self.arch_version == "v16" and self.structure_service and self.horizon and self.trader_mind:
             m5s = m5.sort_index()
             loc = m5s.index.get_loc(bar_time)
             if isinstance(loc, slice):
                 loc = len(m5s) - 1
-            snapshot = self.structure_service.snapshot_from_row(m5s, int(loc))
-            v16_forecast = self.horizon.predict(snapshot)
+            v16_snapshot = self.structure_service.snapshot_from_row(m5s, int(loc))
+            v16_forecast = self.horizon.predict(v16_snapshot)
             cons_losses = self.memory.get_consecutive_losses()
             v16_plan = self.trader_mind.plan(
                 v16_forecast,
-                snapshot,
+                v16_snapshot,
                 close=close,
                 atr=atr,
                 consecutive_losses=cons_losses,
+                regime=str(v16_snapshot.zigzag_phase or ""),
             )
-            kn_row = np.asarray(snapshot.vector, dtype=np.float32)
+            kn_row = np.asarray(v16_snapshot.vector, dtype=np.float32)
             prob_row = np.array(v16_forecast.to_kn_probs(), dtype=np.float32)
             emb = np.zeros(32, dtype=np.float32)
             if self.horizon.is_ready and self.horizon._kn is not None:
                 _, emb = self.horizon._kn.predict(kn_row.reshape(1, -1))
                 emb = emb.reshape(-1) if emb is not None else emb
+            market_feat_kn2 = np.concatenate(
+                [kn_row.reshape(-1)[:30], prob_row.reshape(-1)[:3], emb.reshape(-1)[:32]]
+            ).astype(np.float32)
         else:
             kn_row = self._build_knowledge_features(m5, struct)
             probs, emb = self.knowledge.predict(kn_row.reshape(1, -1))
@@ -495,6 +571,10 @@ class TradingAgent:
                 position_ctx = pos
                 break
 
+        lock_dir = None
+        if self.horizon_lock_direction and v16_forecast is not None:
+            lock_dir = v16_forecast.direction
+
         thought = self.cognition.process(
             struct_features=struct,
             knowledge_probs=prob_row,
@@ -508,17 +588,60 @@ class TradingAgent:
             tick_bid=tick_bid,
             tick_ask=tick_ask,
             position_ctx=position_ctx,
-            lock_forecast_direction=(v16_forecast.direction if v16_forecast else None),
+            lock_forecast_direction=lock_dir,
         )
+
+        kn2_dec: dict[str, Any] | None = None
+        horizon_min_conf = float(self.horizon.min_confidence) if self.horizon else 0.48
+        if self._kn2 is not None and market_feat_kn2 is not None and self._kn2.is_ready:
+            from zhulong.agent.knowledge_net_kn2 import encode_position_state
+
+            pos_state = encode_position_state(
+                direction=float(position_ctx.get("direction_sign", 0) if position_ctx else 0),
+            )
+            try:
+                kn2_dec = self._kn2.predict(market_feat_kn2, pos_state)
+                logger.info(
+                    "[KN2%s] %s should_trade=%s action=%s conf=%.3f sl=%.2f tp=%.2f",
+                    "·shadow" if self.kn2_shadow and not self.kn2_enabled else "",
+                    symbol,
+                    kn2_dec.get("should_trade"),
+                    kn2_dec.get("action_name", kn2_dec.get("action")),
+                    float(kn2_dec.get("confidence", 0)),
+                    float(kn2_dec.get("sl_atr_mult", 0)),
+                    float(kn2_dec.get("tp_atr_mult", 0)),
+                )
+            except Exception as ex:
+                logger.warning("KN2 predict 失败: %s", ex)
 
         if v16_forecast is not None and v16_plan is not None:
             prob_row = np.array(v16_forecast.to_kn_probs(), dtype=np.float32)
             cognition_dir = v16_forecast.direction
-            thought.should_trade = v16_plan.should_trade
+            self._apply_v16_execution_gates(
+                thought, v16_plan, cognition_dir, struct, m5, decision_idx
+            )
             if v16_plan.sl_price > 0:
                 thought.ai_sl_price = v16_plan.sl_price
             if v16_plan.tp_price > 0:
                 thought.ai_tp_price = v16_plan.tp_price
+            if kn2_dec and self.kn2_enabled:
+                if not kn2_dec.get("should_trade"):
+                    thought.should_trade = False
+                    thought.risk_warnings = list(thought.risk_warnings or []) + ["KN2否决入场"]
+                elif float(kn2_dec.get("confidence", 0)) < self.kn2_min_confidence:
+                    thought.should_trade = False
+                    thought.risk_warnings = list(thought.risk_warnings or []) + ["KN2置信不足"]
+                else:
+                    kn2_sl = float(kn2_dec.get("sl_atr_mult", 0))
+                    kn2_tp = float(kn2_dec.get("tp_atr_mult", 0))
+                    if kn2_sl > 0 and cognition_dir == "long":
+                        thought.ai_sl_price = close - kn2_sl * atr
+                    elif kn2_sl > 0 and cognition_dir == "short":
+                        thought.ai_sl_price = close + kn2_sl * atr
+                    if kn2_tp > 0 and cognition_dir == "long":
+                        thought.ai_tp_price = close + kn2_tp * atr
+                    elif kn2_tp > 0 and cognition_dir == "short":
+                        thought.ai_tp_price = close - kn2_tp * atr
             instant_dir = cognition_dir
             smoothed_regime = thought.regime
         else:
@@ -635,6 +758,24 @@ class TradingAgent:
         action, filter_reason = self._apply_rl_inference_filters(
             action, confidence, prob_row, symbol, bar_key, cognition_dir
         )
+        if (
+            not filter_reason
+            and self.structure_location_gate
+            and action in (1, 2)
+            and cognition_dir in ("long", "short")
+        ):
+            closes = m5["close"].values.astype(np.float32)
+            pos_arr = compute_pos_in_range(closes)
+            pos = float(pos_arr[decision_idx]) if decision_idx < len(pos_arr) else 0.5
+            ok, reason = evaluate_structure_entry_gate(
+                np.asarray(struct, dtype=np.float32),
+                pos,
+                str(thought.regime or ""),
+                cognition_dir,
+            )
+            if not ok:
+                action = 0
+                filter_reason = reason
         if gate_reason and not filter_reason:
             filter_reason = gate_reason
 
@@ -708,6 +849,14 @@ class TradingAgent:
             "cognition_direction": cognition_dir,
             "cognition_confidence": round(cognition_conf, 4),
             "filter_reason": filter_reason or gate_reason or "",
+            "architecture": self.arch_version,
+            "horizon_direction": v16_forecast.direction if v16_forecast else "",
+            "horizon_confidence": round(float(v16_forecast.confidence), 4) if v16_forecast else 0.0,
+            "horizon_min_confidence": round(horizon_min_conf, 4),
+            "kn2_should_trade": bool(kn2_dec.get("should_trade")) if kn2_dec else False,
+            "kn2_action": (kn2_dec.get("action_name") or str(kn2_dec.get("action", ""))) if kn2_dec else "",
+            "kn2_confidence": round(float(kn2_dec.get("confidence", 0)), 4) if kn2_dec else 0.0,
+            "kn2_shadow_mode": self.kn2_shadow and not self.kn2_enabled,
             "rl_loaded": self.use_rl and self._rl_model is not None,
             "use_rl": self.use_rl,
             "knowledge_ready": (

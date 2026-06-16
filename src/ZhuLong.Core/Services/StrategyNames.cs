@@ -14,6 +14,24 @@ public static class StrategyNames
         _ => strategyId,
     };
 
+    public static string DisplayAgentStack(string? architecture) => architecture switch
+    {
+        "v16" => "Horizon v16",
+        _ => Display("rl_agent"),
+    };
+
+    public static string AgentLogPrefix(string? architecture) => architecture switch
+    {
+        "v16" => "[V16·Horizon]",
+        _ => "[RL智能体]",
+    };
+
+    public static string AgentStrategyLabel(string? architecture) => architecture switch
+    {
+        "v16" => "V16 · Horizon+RL",
+        _ => "RL智能体",
+    };
+
     public static string LogLabel(string? strategyId)
     {
         var id = strategyId ?? "";
@@ -29,4 +47,11 @@ public static class StrategyNames
         "" or null => "—",
         _ => state,
     };
+
+    public static string FormatHorizonConfidence(double conf, double minConf)
+    {
+        if (conf <= 0 && minConf <= 0) return "—";
+        var mark = conf >= minConf ? "≥" : "<";
+        return $"{conf:F2}{mark}{minConf:F2}";
+    }
 }

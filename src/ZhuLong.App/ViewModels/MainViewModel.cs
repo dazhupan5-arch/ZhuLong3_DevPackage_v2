@@ -205,10 +205,11 @@ public sealed partial class MainViewModel : ObservableObject
             var agentOn = _runtime.GetTradingAgentEnabled();
             if (agentOn && st.IsRunning)
             {
+                var archLabel = StrategyNames.DisplayAgentStack(st.AgentArchitecture);
                 if (!string.IsNullOrEmpty(st.ActiveStrategy))
-                    StrategyHealthText = $"{StrategyNames.DisplayMarketState(st.ActiveMarketState)} · RL智能体";
+                    StrategyHealthText = $"{StrategyNames.DisplayMarketState(st.ActiveMarketState)} · {archLabel}";
                 else
-                    StrategyHealthText = "● RL 智能体";
+                    StrategyHealthText = $"● {archLabel}";
             }
             else if (multiOn && st.IsRunning && !string.IsNullOrEmpty(st.ActiveStrategy))
             {

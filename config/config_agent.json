@@ -10,7 +10,7 @@
     "horizon_predictor": {
       "horizon_bars": 12,
       "gain_threshold": 0.002,
-      "min_direction_confidence": 0.42,
+      "min_direction_confidence": 0.48,
       "model_path": "models/horizon_v16.onnx",
       "scaler_path": "models/horizon_v16_scaler.pkl",
       "model_id": "horizon_v16"
@@ -20,7 +20,20 @@
     "max_consecutive_losses": 6,
     "sl_atr_mult": 1.2,
     "tp_atr_mult": 2.0,
-    "min_confidence": 0.42
+    "ranging_sl_atr_mult": 1.8,
+    "choppy_sl_atr_mult": 2.0,
+    "min_confidence": 0.48
+  },
+  "execution_gates": {
+    "structure_location_gate": true,
+    "block_ranging_conflict": true,
+    "horizon_lock_direction": false
+  },
+  "kn2": {
+    "enabled": false,
+    "shadow_mode": true,
+    "model_path": "models/kn2_trader_v16.pth",
+    "min_confidence": 0.48
   },
   "cognition": {
     "enabled": true,
@@ -75,8 +88,8 @@
     }
   },
   "rl_inference": {
-    "action_threshold": 0.6,
-    "min_confidence_for_trade": 0.65,
+    "action_threshold": 0.52,
+    "min_confidence_for_trade": 0.52,
     "max_daily_trades": 5,
     "risk_per_trade": 0.005
   },

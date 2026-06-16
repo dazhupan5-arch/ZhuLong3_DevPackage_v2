@@ -605,6 +605,41 @@ def summarize_location_labels(
     return report
 
 
+def evaluate_structure_entry_gate(
+    struct_row: np.ndarray,
+    pos_in_range: float,
+    regime: str,
+    direction: str,
+    cfg: LocationLabelConfig | None = None,
+) -> tuple[bool, str]:
+    """实盘结构位置门控：long 需在有利区域，否则拒绝开仓。"""
+    direction = (direction or "flat").strip().lower()
+    if direction not in ("long", "short"):
+        return True, ""
+    cfg = cfg or LocationLabelConfig()
+    regime_code = np.array([REGIME_CODES.get(regime, 6)], dtype=np.int8)
+    struct = np.asarray(struct_row, dtype=np.float32).reshape(1, -1)
+    pos = np.array([float(pos_in_range)], dtype=np.float32)
+    long_c, short_c, _ = build_entry_masks(struct, pos, regime_code, cfg)
+    if direction == "long":
+        if bool(long_c[0]):
+            return True, ""
+        res_d = float(struct[0, 4]) if struct.shape[1] > 4 else 99.0
+        if res_d <= cfg.min_resistance_dist_long:
+            return False, "structure_gate:near_resistance_no_long"
+        if regime == "ranging" and pos_in_range > cfg.ranging_block_long_above:
+            return False, "structure_gate:ranging_upper_range"
+        return False, "structure_gate:long_location_unfavorable"
+    if bool(short_c[0]):
+        return True, ""
+    sup_d = float(struct[0, 3]) if struct.shape[1] > 3 else 99.0
+    if sup_d <= cfg.min_support_dist_short:
+        return False, "structure_gate:near_support_no_short"
+    if regime == "ranging" and pos_in_range < cfg.ranging_block_short_below:
+        return False, "structure_gate:ranging_lower_range"
+    return False, "structure_gate:short_location_unfavorable"
+
+
 def labels_from_npz(data: dict[str, Any]) -> dict[str, np.ndarray]:
     """从 NPZ 读取 P0 预生成的 loc_* 标签。"""
     required = ("loc_action", "loc_should_trade", "loc_sl_atr_mult", "loc_tp_atr_mult")

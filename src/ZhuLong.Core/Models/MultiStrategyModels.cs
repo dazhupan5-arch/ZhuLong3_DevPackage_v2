@@ -26,6 +26,14 @@ public sealed class MultiStrategyTickResult
     public string? CognitionDirection { get; init; }
     public double CognitionConfidence { get; init; }
     public string? FilterReason { get; init; }
+    public string? Architecture { get; init; }
+    public string? HorizonDirection { get; init; }
+    public double HorizonConfidence { get; init; }
+    public double HorizonMinConfidence { get; init; }
+    public bool Kn2ShouldTrade { get; init; }
+    public string? Kn2Action { get; init; }
+    public double Kn2Confidence { get; init; }
+    public bool Kn2ShadowMode { get; init; }
 }
 
 public sealed class MultiStrategySignalPayload

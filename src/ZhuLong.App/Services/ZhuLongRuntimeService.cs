@@ -26,6 +26,7 @@ public sealed class RuntimeState
     public string PipeStatus { get; set; } = "未启动";
     public string ActiveMarketState { get; set; } = "";
     public string ActiveStrategy { get; set; } = "";
+    public string AgentArchitecture { get; set; } = "";
     /// <summary>智能体最新方向意见（开机评估/M5 tick，非已发信号）。</summary>
     public string AgentOpinionText { get; set; } = "智能体意见：—";
     public int ManagedPositionCount { get; set; }
@@ -956,13 +957,31 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         {
             State.ActiveMarketState = primaryResult.MarketState;
             State.ActiveStrategy = primaryResult.ActiveStrategy;
+            State.AgentArchitecture = primaryResult.Architecture ?? "";
             var rl = string.IsNullOrWhiteSpace(primaryResult.RlRawAction) ? "—" : primaryResult.RlRawAction;
             var action = string.IsNullOrWhiteSpace(primaryResult.AgentAction) ? "—" : primaryResult.AgentAction;
             var regime = string.IsNullOrWhiteSpace(primaryResult.CognitionRegime) ? "—" : primaryResult.CognitionRegime;
             var cogDir = string.IsNullOrWhiteSpace(primaryResult.CognitionDirection) ? "—" : primaryResult.CognitionDirection;
             var cogConf = primaryResult.CognitionConfidence;
             var filterNote = string.IsNullOrWhiteSpace(primaryResult.FilterReason) ? "" : $" 门控={primaryResult.FilterReason}";
-            Log($"[RL智能体] {primary} 认知={cogDir}({cogConf:F2}) RL={rl} 最终={action} 行情={regime}{filterNote} 策略={StrategyNames.LogLabel(primaryResult.ActiveStrategy)}");
+            var arch = primaryResult.Architecture ?? "";
+            var isV16 = string.Equals(arch, "v16", StringComparison.OrdinalIgnoreCase);
+            var logPrefix = StrategyNames.AgentLogPrefix(arch);
+            if (isV16)
+            {
+                var hDir = string.IsNullOrWhiteSpace(primaryResult.HorizonDirection) ? cogDir : primaryResult.HorizonDirection;
+                var hConf = StrategyNames.FormatHorizonConfidence(
+                    primaryResult.HorizonConfidence > 0 ? primaryResult.HorizonConfidence : cogConf,
+                    primaryResult.HorizonMinConfidence > 0 ? primaryResult.HorizonMinConfidence : 0.48);
+                var kn2Note = primaryResult.Kn2ShadowMode || !string.IsNullOrWhiteSpace(primaryResult.Kn2Action)
+                    ? $" KN2={(primaryResult.Kn2ShouldTrade ? "trade" : "hold")}({primaryResult.Kn2Confidence:F2})"
+                    : "";
+                Log($"{logPrefix} {primary} Horizon={hDir}({hConf}) RL={rl} 最终={action} 行情={regime}{filterNote}{kn2Note} 策略={StrategyNames.AgentStrategyLabel(arch)}");
+            }
+            else
+            {
+                Log($"{logPrefix} {primary} 认知={cogDir}({cogConf:F2}) RL={rl} 最终={action} 行情={regime}{filterNote} 策略={StrategyNames.LogLabel(primaryResult.ActiveStrategy)}");
+            }
             var opinionDir = cogDir switch
             {
                 "long" => 1,
@@ -970,7 +989,17 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
                 _ => 0,
             };
             var opinionConf = cogConf > 0 ? cogConf : (primaryResult.Signal?.Confidence ?? 0);
-            PublishAgentOpinion(primary, opinionDir, opinionConf, cogDir, rl, action);
+            if (isV16)
+            {
+                var hDir = string.IsNullOrWhiteSpace(primaryResult.HorizonDirection) ? cogDir : primaryResult.HorizonDirection;
+                var hConf = primaryResult.HorizonConfidence > 0 ? primaryResult.HorizonConfidence : opinionConf;
+                var hMin = primaryResult.HorizonMinConfidence > 0 ? primaryResult.HorizonMinConfidence : 0.48;
+                PublishAgentOpinion(primary, opinionDir, hConf, hDir, rl, action, hMin, primaryResult.Architecture);
+            }
+            else
+            {
+                PublishAgentOpinion(primary, opinionDir, opinionConf, cogDir, rl, action, architecture: arch);
+            }
         }
 
         foreach (var r in results)
@@ -1633,8 +1662,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         double confidence,
         string? cognitionDir = null,
         string? rlAction = null,
-        string? finalAction = null)
+        string? finalAction = null,
+        double minConfidence = 0,
+        string? architecture = null)
     {
+        var isV16 = string.Equals(architecture, "v16", StringComparison.OrdinalIgnoreCase);
         var dirText = direction > 0 ? "多头" : direction < 0 ? "空头" : "观望";
         var cogLabel = string.IsNullOrWhiteSpace(cognitionDir) ? dirText : cognitionDir switch
         {
@@ -1644,9 +1676,16 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         };
         var rlLabel = string.IsNullOrWhiteSpace(rlAction) ? "—" : rlAction;
         var finalLabel = string.IsNullOrWhiteSpace(finalAction) ? "—" : finalAction;
-        var text = direction == 0
-            ? $"智能体意见：{symbol} 观望（认知={cogLabel} RL={rlLabel} 最终={finalLabel}）"
-            : $"智能体意见：{symbol} 认知={cogLabel} conf={confidence:F2}（RL={rlLabel} 最终={finalLabel}）";
+        var confNote = minConfidence > 0
+            ? StrategyNames.FormatHorizonConfidence(confidence, minConfidence)
+            : $"{confidence:F2}";
+        var text = isV16
+            ? (direction == 0
+                ? $"Horizon方向：{symbol} 观望（Horizon={cogLabel} {confNote} RL={rlLabel} 最终={finalLabel}）"
+                : $"Horizon方向：{symbol} {cogLabel} conf={confNote}（RL={rlLabel} 最终={finalLabel}）")
+            : (direction == 0
+                ? $"智能体意见：{symbol} 观望（认知={cogLabel} RL={rlLabel} 最终={finalLabel}）"
+                : $"智能体意见：{symbol} 认知={cogLabel} conf={confidence:F2}（RL={rlLabel} 最终={finalLabel}）");
         State.AgentOpinionText = text;
         AgentOpinionUpdated?.Invoke(text);
     }

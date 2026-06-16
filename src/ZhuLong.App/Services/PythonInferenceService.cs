@@ -372,6 +372,14 @@ public sealed class PythonInferenceService : IDisposable
             CognitionDirection = item.TryGetProperty("cognition_direction", out var cogDir) ? cogDir.GetString() : null,
             CognitionConfidence = item.TryGetProperty("cognition_confidence", out var cogConf) ? cogConf.GetDouble() : 0,
             FilterReason = item.TryGetProperty("filter_reason", out var filt) ? filt.GetString() : null,
+            Architecture = item.TryGetProperty("architecture", out var arch) ? arch.GetString() : null,
+            HorizonDirection = item.TryGetProperty("horizon_direction", out var hDir) ? hDir.GetString() : null,
+            HorizonConfidence = item.TryGetProperty("horizon_confidence", out var hConf) ? hConf.GetDouble() : 0,
+            HorizonMinConfidence = item.TryGetProperty("horizon_min_confidence", out var hMin) ? hMin.GetDouble() : 0,
+            Kn2ShouldTrade = item.TryGetProperty("kn2_should_trade", out var k2t) && k2t.GetBoolean(),
+            Kn2Action = item.TryGetProperty("kn2_action", out var k2a) ? k2a.GetString() : null,
+            Kn2Confidence = item.TryGetProperty("kn2_confidence", out var k2c) ? k2c.GetDouble() : 0,
+            Kn2ShadowMode = item.TryGetProperty("kn2_shadow_mode", out var k2s) && k2s.GetBoolean(),
         };
     }
 
