@@ -26,6 +26,7 @@ from zhulong.agent.training_utils import (
     load_npz,
     load_training_config,
     resolve_symbol_paths,
+    resolve_v16_paths,
 )
 from zhulong.utils.device import print_gpu_status, resolve_sb3_device
 
@@ -147,14 +148,15 @@ def main() -> int:
     print(f"PPO device: {rl_device}", flush=True)
 
     if args.v16:
-        npz_path = _ROOT / "data" / "training_horizon_v16.npz"
-        kn_path = _ROOT / "models" / "horizon_v16.onnx"
-        kn_scaler = _ROOT / "models" / "horizon_v16_scaler.pkl"
+        v16 = resolve_v16_paths(args.symbol, cfg)
+        npz_path = Path(v16["horizon_npz"])
+        kn_path = Path(v16["horizon_onnx"])
+        kn_scaler = Path(v16["horizon_scaler"])
         if not kn_path.is_file():
-            kn_path = _ROOT / "models" / "horizon_v16.pth"
-        rl_out = _ROOT / "models" / "rl_agent_xau" if args.symbol.upper() == "XAUUSD" else paths["rl_model"]
+            kn_path = Path(v16["horizon_pth"])
+        rl_out = Path(v16["rl_model"])
         paths = {**paths, "npz": npz_path, "knowledge_model": kn_path, "knowledge_scaler": kn_scaler, "rl_model": rl_out}
-        print("V16 PPO: horizon NPZ + horizon model", flush=True)
+        print(f"V16 PPO: {args.symbol.upper()} horizon NPZ + horizon model", flush=True)
     else:
         npz_path = Path(args.npz) if args.npz else paths["npz"]
 
@@ -432,9 +434,10 @@ def main() -> int:
     summary_path = ensure_logs_dir() / f"rl_{args.symbol.upper()}.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     if args.v16:
-        v16_dir = _ROOT / "models" / "XAUUSD" / "v16"
+        v16 = resolve_v16_paths(args.symbol, cfg)
+        v16_dir = Path(v16["rl_meta"]).parent
         v16_dir.mkdir(parents=True, exist_ok=True)
-        (v16_dir / "rl_meta.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        Path(v16["rl_meta"]).write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(f"RL 训练完成 → {out}.zip")
     return 0
 

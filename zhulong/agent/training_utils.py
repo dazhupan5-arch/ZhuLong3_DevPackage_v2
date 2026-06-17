@@ -52,6 +52,68 @@ def load_training_config(path: str | Path | None = None) -> dict[str, Any]:
     return json.loads(text)
 
 
+def resolve_v16_paths(symbol: str, cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """V16 训练/推理路径（XAUUSD 沿用根目录 artifacts，USOIL 独立 data/clean + models/USOIL/v16）。"""
+    sym = symbol.strip().upper()
+    cfg = cfg or load_training_config()
+    data_cfg = cfg.get("data") or {}
+    kn_cfg = cfg.get("knowledge_net") or {}
+    oil_kn = kn_cfg.get("oil") or {}
+
+    if sym == "XAUUSD":
+        horizon = int(data_cfg.get("label_horizon", 12))
+        gain = float(data_cfg.get("label_threshold", 0.002))
+        return {
+            "symbol": sym,
+            "horizon": horizon,
+            "gain": gain,
+            "hidden_dim": 96,
+            "clean_csv": ROOT / "data/clean/XAUUSD_M5_clean.csv",
+            "horizon_npz": ROOT / data_cfg.get("v16_horizon_npz", "data/clean/training_horizon_v16.npz"),
+            "horizon_location_npz": ROOT / "data/clean/training_horizon_v16_location.npz",
+            "kn2_npz": ROOT / data_cfg.get("v16_kn2_npz", "data/clean/kn2_training_v16.npz"),
+            "kn2_location_npz": ROOT / "data/clean/kn2_training_v16_location.npz",
+            "horizon_pth": ROOT / "models/horizon_v16.pth",
+            "horizon_onnx": ROOT / "models/horizon_v16.onnx",
+            "horizon_scaler": ROOT / "models/horizon_v16_scaler.pkl",
+            "horizon_meta": ROOT / "models/horizon_v16.meta.json",
+            "kn2_pth": ROOT / "models/kn2_trader_v16.pth",
+            "kn2_meta": ROOT / "models/kn2_trader_v16.meta.json",
+            "rl_model": ROOT / "models/rl_agent_xau",
+            "rl_meta": ROOT / "models/XAUUSD/v16/rl_meta.json",
+            "struct_cache": ROOT / "data/training/v16/XAUUSD",
+            "acceptance": ROOT / "config/v16_acceptance.json",
+        }
+
+    if sym == "USOIL":
+        horizon = int(oil_kn.get("label_horizon", 18))
+        gain = float(oil_kn.get("label_gain", 0.003))
+        v16_dir = ROOT / "models/USOIL/v16"
+        return {
+            "symbol": sym,
+            "horizon": horizon,
+            "gain": gain,
+            "hidden_dim": int(oil_kn.get("hidden_dim", 64)),
+            "clean_csv": ROOT / "data/clean/USOIL_M5_clean.csv",
+            "horizon_npz": ROOT / data_cfg.get("v16_horizon_npz_oil", "data/clean/training_horizon_v16_usoil.npz"),
+            "horizon_location_npz": ROOT / "data/clean/training_horizon_v16_usoil_location.npz",
+            "kn2_npz": ROOT / data_cfg.get("v16_kn2_npz_oil", "data/clean/kn2_training_v16_usoil.npz"),
+            "kn2_location_npz": ROOT / "data/clean/kn2_training_v16_usoil_location.npz",
+            "horizon_pth": v16_dir / "horizon_v16.pth",
+            "horizon_onnx": v16_dir / "horizon_v16.onnx",
+            "horizon_scaler": v16_dir / "horizon_v16_scaler.pkl",
+            "horizon_meta": v16_dir / "horizon_v16.meta.json",
+            "kn2_pth": v16_dir / "kn2_trader_v16.pth",
+            "kn2_meta": v16_dir / "kn2_trader_v16.meta.json",
+            "rl_model": ROOT / "models/rl_agent_oil",
+            "rl_meta": v16_dir / "rl_meta.json",
+            "struct_cache": ROOT / "data/training/v16/USOIL",
+            "acceptance": ROOT / "config/v16_acceptance_usoil.json",
+        }
+
+    raise ValueError(f"V16 paths not defined for symbol: {sym}")
+
+
 def resolve_symbol_paths(symbol: str, cfg: dict[str, Any] | None = None) -> dict[str, Path]:
     sym = symbol.strip().upper()
     defaults = SYMBOL_DEFAULTS.get(sym, SYMBOL_DEFAULTS["XAUUSD"]).copy()

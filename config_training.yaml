@@ -11,6 +11,9 @@ data:
   v16_horizon_npz: "data/clean/training_horizon_v16.npz"
   v16_kn2_npz: "data/clean/kn2_training_v16.npz"
   v16_clean_csv: "data/clean/XAUUSD_M5_clean.csv"
+  v16_horizon_npz_oil: "data/clean/training_horizon_v16_usoil.npz"
+  v16_kn2_npz_oil: "data/clean/kn2_training_v16_usoil.npz"
+  v16_clean_csv_oil: "data/clean/USOIL_M5_clean.csv"
 
 device:
   torch: auto   # auto | cuda | cpu — KnowledgeNet 等 PyTorch 训练

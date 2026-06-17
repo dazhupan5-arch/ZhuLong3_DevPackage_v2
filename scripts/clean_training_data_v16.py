@@ -17,12 +17,15 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from zhulong.agent.training_utils import clean_m5_bars, load_m5_csv, load_training_config, resolve_symbol_paths
+from zhulong.agent.training_utils import (
+    clean_m5_bars,
+    load_m5_csv,
+    load_training_config,
+    resolve_symbol_paths,
+    resolve_v16_paths,
+)
 
 CLEAN_DIR = _ROOT / "data" / "clean"
-DEFAULT_HORIZON_NPZ = CLEAN_DIR / "training_horizon_v16.npz"
-DEFAULT_KN2_NPZ = CLEAN_DIR / "kn2_training_v16.npz"
-DEFAULT_CLEAN_CSV = CLEAN_DIR / "XAUUSD_M5_clean.csv"
 REPORT_PATH = CLEAN_DIR / "cleaning_report.json"
 
 
@@ -200,7 +203,11 @@ def main() -> int:
 
     cfg = load_training_config(_ROOT / "config_training.yaml")
     paths = resolve_symbol_paths(args.symbol, cfg)
+    v16 = resolve_v16_paths(args.symbol, cfg)
     csv_path = Path(args.csv) if args.csv else paths["csv"]
+    clean_csv = Path(v16["clean_csv"])
+    horizon_npz = Path(v16["horizon_npz"])
+    kn2_npz = Path(v16["kn2_npz"])
     if not csv_path.is_file():
         print(f"CSV 不存在: {csv_path}")
         return 1
@@ -223,14 +230,14 @@ def main() -> int:
             cleaned = cleaned[cleaned["volume"] >= q].reset_index(drop=True)
     after = _audit_df(cleaned)
 
-    _save_clean_csv(cleaned, DEFAULT_CLEAN_CSV)
+    _save_clean_csv(cleaned, clean_csv)
 
     report = {
         "version": "v16_clean_1",
         "created_at": datetime.now(timezone.utc).isoformat(),
         "symbol": args.symbol.upper(),
         "source_csv": str(csv_path.relative_to(_ROOT)).replace("\\", "/"),
-        "clean_csv": str(DEFAULT_CLEAN_CSV.relative_to(_ROOT)).replace("\\", "/"),
+        "clean_csv": str(clean_csv.relative_to(_ROOT)).replace("\\", "/"),
         "date_range": {"start": args.start, "end": args.end},
         "before": before,
         "after": after,
@@ -241,7 +248,7 @@ def main() -> int:
     print(json.dumps(report, indent=2, ensure_ascii=False), flush=True)
 
     if args.skip_horizon:
-        print(f"跳过 horizon NPZ；已写入 {DEFAULT_CLEAN_CSV} 与 {REPORT_PATH}")
+        print(f"跳过 horizon NPZ；已写入 {clean_csv} 与 {REPORT_PATH}")
         return 0
 
     source_hz = _ROOT / args.source_horizon_npz
@@ -251,10 +258,14 @@ def main() -> int:
             args.symbol,
             "--end",
             args.end,
+            "--horizon",
+            str(v16["horizon"]),
+            "--gain",
+            str(v16["gain"]),
             "--csv",
-            str(DEFAULT_CLEAN_CSV),
+            str(clean_csv),
             "--out",
-            str(DEFAULT_HORIZON_NPZ),
+            str(horizon_npz),
             "--jobs",
             str(max(1, args.jobs)),
         ]
@@ -264,9 +275,16 @@ def main() -> int:
         if rc != 0:
             return rc
     else:
-        meta = _rebuild_horizon_npz(cleaned, source_hz, DEFAULT_HORIZON_NPZ, symbol=args.symbol)
+        meta = _rebuild_horizon_npz(
+            cleaned,
+            source_hz,
+            horizon_npz,
+            horizon=int(v16["horizon"]),
+            gain=float(v16["gain"]),
+            symbol=args.symbol,
+        )
         report["horizon_rebuild"] = meta
-    report["artifacts"]["horizon_npz"] = _verify_npz(DEFAULT_HORIZON_NPZ)
+    report["artifacts"]["horizon_npz"] = _verify_npz(horizon_npz)
 
     if args.skip_kn2:
         REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -277,19 +295,22 @@ def main() -> int:
     if args.full_rebuild or not source_kn2.is_file():
         kn2_args = [
             "--npz",
-            str(DEFAULT_HORIZON_NPZ),
+            str(horizon_npz),
             "--out",
-            str(DEFAULT_KN2_NPZ),
+            str(kn2_npz),
         ]
+        if v16["horizon_onnx"].is_file():
+            kn2_args.extend(["--horizon-onnx", str(v16["horizon_onnx"])])
+            kn2_args.extend(["--horizon-scaler", str(v16["horizon_scaler"])])
         rc = _run_script("prepare_kn2_v16_data.py", kn2_args)
         if rc != 0:
             return rc
     else:
-        meta = _rebuild_kn2_npz(DEFAULT_HORIZON_NPZ, source_kn2, DEFAULT_KN2_NPZ)
+        meta = _rebuild_kn2_npz(horizon_npz, source_kn2, kn2_npz)
         report["kn2_rebuild"] = meta
-    report["artifacts"]["kn2_npz"] = _verify_npz(DEFAULT_KN2_NPZ)
+    report["artifacts"]["kn2_npz"] = _verify_npz(kn2_npz)
     REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
-    print(f"完成。干净数据: {DEFAULT_HORIZON_NPZ}, {DEFAULT_KN2_NPZ}")
+    print(f"完成。干净数据: {horizon_npz}, {kn2_npz}")
     return 0
 
 

@@ -1,0 +1,21 @@
+{
+  "acceptance_stage": "v16_usoil",
+  "symbol": "USOIL",
+  "min_training_rows": 600000,
+  "min_val_accuracy": 0.46,
+  "min_val_macro_f1": 0.42,
+  "min_oos_win_rate": 0.52,
+  "min_oos_trades": 400,
+  "max_forecast_side_ratio": 1.4,
+  "require_onnx": true,
+  "require_rl_model": true,
+  "rl_model_path": "models/rl_agent_oil.zip",
+  "rl_meta_path": "models/USOIL/v16/rl_meta.json",
+  "min_rl_eval_win_rate": 0.48,
+  "min_rl_eval_trades_sample": 25,
+  "min_rl_direction_coherence": 0.90,
+  "oos_start": "2025-01-01",
+  "oos_end": "2025-12-31",
+  "label_horizon": 18,
+  "label_gain": 0.003
+}

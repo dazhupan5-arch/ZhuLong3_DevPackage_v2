@@ -18,7 +18,7 @@ import torch  # noqa: F401
 
 from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
 from zhulong.agent.knowledge_net import train_knowledge_net
-from zhulong.agent.training_utils import ensure_logs_dir, load_npz, signed_to_class
+from zhulong.agent.training_utils import ensure_logs_dir, load_npz, resolve_v16_paths, signed_to_class
 from zhulong.utils.device import print_gpu_status
 
 MIN_MACRO_F1 = 0.45
@@ -26,11 +26,12 @@ MIN_MACRO_F1 = 0.45
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--symbol", default="XAUUSD", choices=["XAUUSD", "USOIL"])
     parser.add_argument("--epochs", type=int, default=80)
     parser.add_argument(
         "--npz",
-        default="data/clean/training_horizon_v16_location.npz",
-        help="训练 NPZ（P4 默认 location 版）",
+        default="",
+        help="训练 NPZ（默认按 --symbol 从 resolve_v16_paths 解析）",
     )
     parser.add_argument(
         "--label-mode",
@@ -54,8 +55,16 @@ def main() -> int:
     parser.add_argument("--train-end", default="2024-12-31")
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--min-f1", type=float, default=0.0, help="exit 1 if macro_f1 below (0=ignore)")
-    parser.add_argument("--out", default="models/horizon_v16.pth")
+    parser.add_argument("--out", default="", help="输出 .pth（默认按 symbol）")
     args = parser.parse_args()
+
+    v16 = resolve_v16_paths(args.symbol)
+    if not args.npz:
+        args.npz = str(v16["horizon_location_npz"].relative_to(_ROOT)).replace("\\", "/")
+    if not args.out:
+        args.out = str(v16["horizon_pth"].relative_to(_ROOT)).replace("\\", "/")
+    if args.symbol == "USOIL" and args.hidden_dim == 96:
+        args.hidden_dim = int(v16["hidden_dim"])
 
     try:
         class_weights = [float(x.strip()) for x in args.class_weights.split(",")]
@@ -79,7 +88,7 @@ def main() -> int:
     print(f"train samples: {len(x)} x {x.shape[1]} label_mode={args.label_mode} ({label_version})")
 
     out_model = _ROOT / args.out
-    out_scaler = out_model.with_name("horizon_v16_scaler.pkl")
+    out_scaler = v16["horizon_scaler"]
     log_name = "horizon_v16_train.log"
     if args.log_suffix:
         log_name = f"horizon_v16_train_{args.log_suffix}.log"
