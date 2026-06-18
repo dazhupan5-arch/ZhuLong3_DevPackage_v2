@@ -126,7 +126,7 @@ if (-not $SkipHorizon) {
         --no-benchmark
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Step "Horizon 门禁（分类 F1>0.5, long/short P/R>=80%，不含 RL）"
+    Write-Step "Horizon 门禁（train/test F1>0.5、gap<=0.10、test long/short P/R>=80%、无泄露，不含 RL）"
     py -3 scripts/accept_horizon_v16.py --horizon-only
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Horizon 分类验收不合格 exit=$LASTEXITCODE" -ForegroundColor Red

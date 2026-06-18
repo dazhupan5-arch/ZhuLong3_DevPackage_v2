@@ -1,9 +1,21 @@
-"""V16 分类验收指标（macro F1 + long/short 精确率/召回率）。"""
+"""V16 分类验收指标（macro F1 + long/short 精确率/召回率 + 训练/测试双门槛）。"""
 from __future__ import annotations
 
 from typing import Any
 
 import numpy as np
+
+
+def load_f1_floor(acc: dict[str, Any]) -> float:
+    """macro F1 下限（训练集与测试集均须严格大于该值）。"""
+    for key in ("min_macro_f1", "min_test_macro_f1", "min_train_macro_f1", "min_val_macro_f1"):
+        if key in acc:
+            return float(acc[key])
+    return 0.50
+
+
+def load_win_rate_floor(acc: dict[str, Any]) -> float:
+    return float(acc.get("min_win_rate", acc.get("min_oos_win_rate", 0.60)))
 
 
 def classification_report(
@@ -39,7 +51,6 @@ def classification_report(
         recalls.append(rec)
         f1s.append(f1)
 
-    # macro（仅含 support>0 的类）
     active = [i for i, s in enumerate(supports) if s > 0]
     macro_f1 = float(np.mean([f1s[i] for i in active])) if active else 0.0
     macro_prec = float(np.mean([precisions[i] for i in active])) if active else 0.0
@@ -63,16 +74,11 @@ def apply_classification_thresholds(
     *,
     prefix: str = "",
 ) -> None:
-    """F1>0.5；long/short 精确率、召回率均 >=80%（可配置）。"""
+    """测试集 long/short 精确率、召回率门槛（默认 >=80%）。"""
     pfx = f"{prefix}_" if prefix else ""
-    min_f1 = float(acc.get("min_val_macro_f1", 0.50))
     min_prec = float(acc.get("min_class_precision", 0.80))
     min_rec = float(acc.get("min_class_recall", 0.80))
     strict = acc.get("strict_classes") or ["long", "short"]
-
-    macro_f1 = float(metrics.get("macro_f1", 0))
-    if macro_f1 <= min_f1:
-        failures.append(f"{pfx}macro_f1_{macro_f1:.4f}_lte_{min_f1}")
 
     per = metrics.get("per_class") or {}
     for cls in strict:
@@ -83,3 +89,46 @@ def apply_classification_thresholds(
             failures.append(f"{pfx}{cls}_precision_{prec:.4f}_lt_{min_prec}")
         if rec < min_rec:
             failures.append(f"{pfx}{cls}_recall_{rec:.4f}_lt_{min_rec}")
+
+
+def apply_train_test_f1_gates(
+    train_metrics: dict[str, Any],
+    test_metrics: dict[str, Any],
+    acc: dict[str, Any],
+    failures: list[str],
+    *,
+    prefix: str = "",
+) -> None:
+    """训练集与测试集 macro F1 均须 > min_macro_f1；禁止 train 高 test 低（gap 超限）。"""
+    pfx = f"{prefix}_" if prefix else ""
+    min_train = float(acc.get("min_train_macro_f1", acc.get("min_macro_f1", 0.50)))
+    min_test = float(acc.get("min_test_macro_f1", acc.get("min_macro_f1", 0.50)))
+    max_gap = float(acc.get("max_train_test_f1_gap", 0.10))
+
+    train_f1 = float(train_metrics.get("macro_f1", 0))
+    test_f1 = float(test_metrics.get("macro_f1", 0))
+
+    if train_f1 <= min_train:
+        failures.append(f"{pfx}train_macro_f1_{train_f1:.4f}_lte_{min_train}")
+    if test_f1 <= min_test:
+        failures.append(f"{pfx}test_macro_f1_{test_f1:.4f}_lte_{min_test}")
+
+    gap = train_f1 - test_f1
+    if gap > max_gap:
+        failures.append(
+            f"{pfx}train_test_f1_gap_{gap:.4f}_gt_{max_gap}_train_high_test_low"
+        )
+
+
+def check_win_rate(
+    win_rate: float,
+    acc: dict[str, Any],
+    failures: list[str],
+    *,
+    label: str,
+    override_min: float | None = None,
+) -> None:
+    """胜率须严格大于 min_win_rate（默认 >60%）。"""
+    floor = float(override_min if override_min is not None else load_win_rate_floor(acc))
+    if float(win_rate) <= floor:
+        failures.append(f"{label}_win_rate_{float(win_rate):.4f}_lte_{floor}")

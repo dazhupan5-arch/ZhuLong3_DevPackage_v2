@@ -13,6 +13,8 @@ if str(_ROOT) not in sys.path:
 
 from zhulong.agent.training_utils import PIPELINE_CONTRACT_VERSION, TRAIN_END_DEFAULT
 
+ACC_PATH = _ROOT / "config" / "v16_acceptance.json"
+
 REQUIRED_ARTIFACTS = (
     "models/horizon_v16.onnx",
     "models/horizon_v16_scaler.pkl",
@@ -87,16 +89,42 @@ def check_acceptance_report(root: Path, failures: list[str]) -> None:
         return
     _pass("horizon acceptance_report passed")
     sections = report.get("sections") or {}
-    val_cls = sections.get("val_classification") or {}
-    if not val_cls.get("ok"):
-        _fail(failures, "horizon_val_classification_not_ok")
+    splits = sections.get("classification_splits") or {}
+    if not splits.get("ok"):
+        _fail(failures, "horizon_classification_splits_not_ok")
     else:
-        detail = val_cls.get("detail") or {}
-        metrics = detail.get("val_classification") or {}
-        _pass(
-            f"val_classification macro_f1={metrics.get('macro_f1')} "
-            f"n={metrics.get('n_samples')}"
+        detail = splits.get("detail") or {}
+        train_f1 = float((detail.get("train_classification") or {}).get("macro_f1", 0))
+        test_f1 = float(
+            (detail.get("test_classification") or detail.get("val_classification") or {}).get(
+                "macro_f1", 0
+            )
         )
+        min_f1 = 0.50
+        if ACC_PATH.is_file():
+            acc = _load_json(ACC_PATH)
+            min_f1 = float(acc.get("min_macro_f1", 0.50))
+            max_gap = float(acc.get("max_train_test_f1_gap", 0.10))
+        else:
+            max_gap = 0.10
+        if train_f1 <= min_f1:
+            _fail(failures, f"horizon_train_macro_f1_{train_f1:.4f}_lte_{min_f1}")
+        else:
+            _pass(f"horizon train macro_f1={train_f1:.4f}")
+        if test_f1 <= min_f1:
+            _fail(failures, f"horizon_test_macro_f1_{test_f1:.4f}_lte_{min_f1}")
+        else:
+            _pass(f"horizon test macro_f1={test_f1:.4f}")
+        gap = train_f1 - test_f1
+        if gap > max_gap:
+            _fail(failures, f"horizon_train_test_f1_gap_{gap:.4f}_gt_{max_gap}")
+        else:
+            _pass(f"horizon train-test f1 gap={gap:.4f}")
+    leak = sections.get("leak_contract") or {}
+    if not leak.get("ok"):
+        _fail(failures, "horizon_leak_contract_not_ok")
+    else:
+        _pass("horizon leak_contract ok")
 
 
 def check_kn2_if_live(root: Path, cfg: dict, failures: list[str]) -> None:
@@ -113,6 +141,20 @@ def check_kn2_if_live(root: Path, cfg: dict, failures: list[str]) -> None:
         _fail(failures, f"kn2_acceptance_failed:{report.get('failures')}")
         return
     _pass("kn2 acceptance_report passed (LIVE)")
+    train_f1 = float((report.get("train_eval") or {}).get("macro_f1", 0))
+    test_f1 = float((report.get("test_eval") or report.get("val_eval") or {}).get("macro_f1", 0))
+    min_f1 = 0.50
+    max_gap = 0.10
+    if ACC_PATH.is_file():
+        acc = _load_json(ACC_PATH)
+        min_f1 = float(acc.get("min_macro_f1", 0.50))
+        max_gap = float(acc.get("max_train_test_f1_gap", 0.10))
+    if train_f1 <= min_f1:
+        _fail(failures, f"kn2_train_macro_f1_{train_f1:.4f}_lte_{min_f1}")
+    if test_f1 <= min_f1:
+        _fail(failures, f"kn2_test_macro_f1_{test_f1:.4f}_lte_{min_f1}")
+    if train_f1 - test_f1 > max_gap:
+        _fail(failures, f"kn2_train_test_f1_gap_{train_f1 - test_f1:.4f}_gt_{max_gap}")
     for rel in KN2_ARTIFACTS:
         if not (root / rel).is_file():
             alt = root / rel.replace("models/", "data/")

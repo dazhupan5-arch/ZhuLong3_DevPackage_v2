@@ -28,7 +28,12 @@ import pandas as pd
 from zhulong.agent.kn2_location_labels import load_kn2_v16_labels
 from zhulong.agent.knowledge_net_kn2 import KN2Inference, encode_position_state
 from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, VAL_YEAR_DEFAULT
-from scripts.v16_acceptance_metrics import apply_classification_thresholds, classification_report
+from scripts.v16_acceptance_metrics import (
+    apply_classification_thresholds,
+    apply_train_test_f1_gates,
+    classification_report,
+    load_f1_floor,
+)
 
 # 验收门槛（与 config/v16_acceptance.json 对齐，KN2 动作为 hold/long/short）
 MIN_VAL_ACC = 0.50
@@ -151,6 +156,11 @@ def main() -> int:
         val_year=int(acc_cfg.get("val_year", VAL_YEAR_DEFAULT)),
     )
     val_mask = np.asarray(val_mask, dtype=bool)
+    train_mask, _ = temporal_train_val_masks(
+        times[:n],
+        val_year=int(acc_cfg.get("val_year", VAL_YEAR_DEFAULT)),
+    )
+    train_mask = np.asarray(train_mask, dtype=bool)
     if int(val_mask.sum()) < 1000:
         report["failures"].append(
             f"val_year_{acc_cfg.get('val_year', VAL_YEAR_DEFAULT)}_sample_too_small_{int(val_mask.sum())}"
@@ -173,51 +183,62 @@ def main() -> int:
         flush=True,
     )
 
-    val_idx = np.where(val_mask)[0]
-    if args.max_val_bars > 0 and len(val_idx) > args.max_val_bars:
-        # 均匀抽样，覆盖全年
-        step = max(1, len(val_idx) // args.max_val_bars)
-        val_idx = val_idx[::step][: args.max_val_bars]
-
     pos_states = np.tile(encode_position_state(), (n, 1)).astype(np.float32)
-    y_val = labels["action"][val_idx]
-    # 序列起点（与训练一致：步长 seq_len//2）
     seq_len = 64
-    val_set = set(val_idx.tolist())
-    seq_starts = [
-        s for s in range(0, n - seq_len, seq_len // 2)
-        if any(i in val_set for i in range(s, min(s + seq_len, n)))
-    ]
-    if args.max_val_bars > 0:
-        seq_starts = seq_starts[: max(1, args.max_val_bars // seq_len)]
 
-    print(f"Evaluating {len(seq_starts)} sequences...", flush=True)
+    def _eval_on_mask(mask: np.ndarray, max_bars: int) -> tuple[dict, np.ndarray, np.ndarray]:
+        idx = np.where(mask)[0]
+        if max_bars > 0 and len(idx) > max_bars:
+            step = max(1, len(idx) // max_bars)
+            idx = idx[::step][:max_bars]
+        val_set = set(idx.tolist())
+        seq_starts = [
+            s for s in range(0, n - seq_len, seq_len // 2)
+            if any(i in val_set for i in range(s, min(s + seq_len, n)))
+        ]
+        if max_bars > 0:
+            seq_starts = seq_starts[: max(1, max_bars // seq_len)]
+        y_true_local, y_pred_local = _eval_val_sequences(
+            kn2, market_feat, pos_states, labels["action"], seq_starts, seq_len=seq_len
+        )
+        local_mask = (y_true_local < 3) & (y_pred_local < 3)
+        y_t = y_true_local[local_mask]
+        y_p = y_pred_local[local_mask]
+        return _class_metrics(y_t, y_p, n_classes=3), y_t, y_p
+
+    print(f"Evaluating train split ({train_mask.sum():,} bars)...", flush=True)
+    train_metrics, _, _ = _eval_on_mask(train_mask, args.max_val_bars)
+    report["train_eval"] = train_metrics
+
+    print(f"Evaluating test split ({val_mask.sum():,} bars)...", flush=True)
     t1 = time.perf_counter()
-    y_true, y_pred = _eval_val_sequences(
-        kn2, market_feat, pos_states, labels["action"], seq_starts, seq_len=seq_len
-    )
-    # 只保留三分类 hold/long/short
-    mask = (y_true < 3) & (y_pred < 3)
-    y_true = y_true[mask]
-    y_pred = y_pred[mask]
-    metrics = _class_metrics(y_true, y_pred, n_classes=3)
-    report["val_eval"] = {
+    test_metrics, y_true, y_pred = _eval_on_mask(val_mask, args.max_val_bars)
+    metrics = test_metrics
+    report["test_eval"] = {
         "bars": int(len(y_true)),
         "elapsed_sec": round(time.perf_counter() - t1, 1),
-        **metrics,
+        **test_metrics,
     }
+    report["val_eval"] = report["test_eval"]
 
     acc = metrics["accuracy"]
     if acc <= MIN_VAL_ACC:
-        report["failures"].append(f"val_accuracy_below_{MIN_VAL_ACC}")
-    apply_classification_thresholds(metrics, acc_cfg, report["failures"], prefix="kn2")
+        report["failures"].append(f"test_accuracy_below_{MIN_VAL_ACC}")
+    apply_classification_thresholds(metrics, acc_cfg, report["failures"], prefix="test")
+    apply_train_test_f1_gates(train_metrics, test_metrics, acc_cfg, report["failures"], prefix="kn2")
 
+    min_f1 = load_f1_floor(acc_cfg)
     report["thresholds"] = {
-        "min_val_accuracy": MIN_VAL_ACC,
-        "min_val_macro_f1": acc_cfg.get("min_val_macro_f1", 0.50),
+        "acceptance_contract_version": acc_cfg.get("acceptance_contract_version"),
+        "min_test_accuracy": MIN_VAL_ACC,
+        "min_train_macro_f1": acc_cfg.get("min_train_macro_f1", min_f1),
+        "min_test_macro_f1": acc_cfg.get("min_test_macro_f1", min_f1),
+        "max_train_test_f1_gap": acc_cfg.get("max_train_test_f1_gap", 0.10),
         "min_class_precision": acc_cfg.get("min_class_precision", 0.80),
         "min_class_recall": acc_cfg.get("min_class_recall", 0.80),
         "strict_classes": acc_cfg.get("strict_classes", ["long", "short"]),
+        "require_no_data_leak": acc_cfg.get("require_no_data_leak", True),
+        "require_no_future_function": acc_cfg.get("require_no_future_function", True),
     }
     report["passed"] = len(report["failures"]) == 0
 
@@ -227,8 +248,10 @@ def main() -> int:
     out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print("\n=== KN2 V16 Acceptance ===")
-    print(f"val_accuracy: {acc:.2%} (need > {MIN_VAL_ACC:.0%})")
-    print(f"macro_f1: {metrics.get('macro_f1', 0):.4f} (need > {acc_cfg.get('min_val_macro_f1', 0.5)})")
+    print(f"train macro_f1: {train_metrics.get('macro_f1', 0):.4f} (need > {min_f1})")
+    print(f"test macro_f1: {metrics.get('macro_f1', 0):.4f} (need > {min_f1})")
+    print(f"train-test gap: {float(train_metrics.get('macro_f1', 0)) - float(metrics.get('macro_f1', 0)):.4f}")
+    print(f"test accuracy: {acc:.2%} (need > {MIN_VAL_ACC:.0%})")
     for cls in ("hold", "long", "short"):
         pc = metrics["per_class"][cls]
         print(

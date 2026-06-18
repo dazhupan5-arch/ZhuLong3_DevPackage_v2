@@ -23,12 +23,18 @@ from zhulong.agent.horizon_location_labels import resolve_horizon_training_label
 from zhulong.agent.horizon_predictor import HorizonPredictor, direction_from_probs
 from zhulong.agent.knowledge_net import KnowledgeNetInference
 from zhulong.agent.structure_service import StructureService
-from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, VAL_YEAR_DEFAULT
+from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, TRAIN_END_DEFAULT, VAL_YEAR_DEFAULT
 from zhulong.engine.agent_engine import load_agent_config, run_agent_tick
 from zhulong.training.lgb.data_io import load_vendor_csv
 from zhulong.training.v10.backtest import backtest_both
 
-from scripts.v16_acceptance_metrics import apply_classification_thresholds, classification_report
+from scripts.v16_acceptance_metrics import (
+    apply_classification_thresholds,
+    apply_train_test_f1_gates,
+    check_win_rate,
+    classification_report,
+    load_f1_floor,
+)
 
 
 def _load_acceptance(root: Path) -> dict:
@@ -70,23 +76,42 @@ def _check_training(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
         detail["macro_f1"] = float(meta.get("macro_f1", 0))
         if detail["val_accuracy"] < float(acc.get("min_val_accuracy", 0.48)):
             failures.append("val_accuracy_below_threshold")
-        if detail["macro_f1"] <= float(acc.get("min_val_macro_f1", 0.50)):
-            failures.append("macro_f1_below_threshold")
+        min_test_f1 = load_f1_floor(acc)
+        if detail["macro_f1"] <= min_test_f1:
+            failures.append(f"meta_test_macro_f1_{detail['macro_f1']:.4f}_lte_{min_test_f1}")
     else:
         failures.append("missing_horizon_meta")
     return len(failures) == 0, detail, failures
 
 
-def _check_val_classification(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
-    """2025 OOS 上评估 Horizon 分类：macro F1>0.5，long/short P/R>=80%。"""
+def _predict_horizon_on_indices(
+    kn: KnowledgeNetInference,
+    struct: np.ndarray,
+    idx: np.ndarray,
+) -> np.ndarray:
+    y_pred = np.zeros(len(idx), dtype=np.int64)
+    chunk = 4096
+    for start in range(0, len(idx), chunk):
+        sel = idx[start : start + chunk]
+        probs, _ = kn.predict(struct[sel])
+        y_pred[start : start + len(sel)] = np.argmax(probs, axis=1)
+    return y_pred
+
+
+def _eval_horizon_classification_split(
+    root: Path,
+    acc: dict,
+    *,
+    split: str,
+) -> tuple[dict[str, Any], list[str]]:
+    """split=train|test；测试集=2025 OOS（val_year）。"""
     failures: list[str] = []
-    detail: dict = {}
     npz_path = root / "data" / "clean" / "training_horizon_v16_location.npz"
     onnx = root / "models" / "horizon_v16.onnx"
     scaler = root / "models" / "horizon_v16_scaler.pkl"
     if not npz_path.is_file() or not onnx.is_file():
-        failures.append("missing_npz_or_onnx_for_val_classification")
-        return False, detail, failures
+        failures.append(f"missing_npz_or_onnx_for_{split}_classification")
+        return {}, failures
 
     data = load_npz(npz_path)
     struct = np.asarray(data["struct"], dtype=np.float32)
@@ -95,34 +120,104 @@ def _check_val_classification(root: Path, acc: dict) -> tuple[bool, dict, list[s
     times = data.get("time")
     if times is None:
         failures.append("npz_missing_time")
-        return False, detail, failures
+        return {}, failures
 
-    _, val_mask = temporal_train_val_masks(times, val_year=int(acc.get("val_year", VAL_YEAR_DEFAULT)))
-    if int(val_mask.sum()) < 500:
-        failures.append("val_year_sample_too_small")
-        return False, detail, failures
+    train_mask, test_mask = temporal_train_val_masks(
+        times, val_year=int(acc.get("val_year", VAL_YEAR_DEFAULT))
+    )
+    mask = np.asarray(train_mask if split == "train" else test_mask, dtype=bool)
+    if int(mask.sum()) < 500:
+        failures.append(f"{split}_sample_too_small_{int(mask.sum())}")
+        return {}, failures
 
     kn = KnowledgeNetInference(onnx, scaler_path=scaler if scaler.is_file() else None)
     if not kn.is_ready:
-        failures.append("horizon_onnx_not_ready_for_val")
-        return False, detail, failures
+        failures.append(f"horizon_onnx_not_ready_for_{split}")
+        return {}, failures
 
-    idx = np.where(val_mask)[0]
-    max_bars = int(acc.get("max_val_classification_bars", 25000))
+    idx = np.where(mask)[0]
+    max_key = (
+        "max_train_classification_bars"
+        if split == "train"
+        else "max_val_classification_bars"
+    )
+    max_bars = int(acc.get(max_key, 25000))
     if len(idx) > max_bars:
         step = max(1, len(idx) // max_bars)
         idx = idx[::step][:max_bars]
 
-    y_pred = np.zeros(len(idx), dtype=np.int64)
-    chunk = 4096
-    for start in range(0, len(idx), chunk):
-        sel = idx[start : start + chunk]
-        probs, _ = kn.predict(struct[sel])
-        y_pred[start : start + len(sel)] = np.argmax(probs, axis=1)
-
+    y_pred = _predict_horizon_on_indices(kn, struct, idx)
     metrics = classification_report(y_true[idx], y_pred)
-    detail["val_classification"] = metrics
-    apply_classification_thresholds(metrics, acc, failures, prefix="val")
+    if split == "test":
+        apply_classification_thresholds(metrics, acc, failures, prefix="test")
+    return metrics, failures
+
+
+def _check_classification_splits(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
+    """训练集+测试集 macro F1 均>0.5；禁止 train 高 test 低；测试集 long/short P/R>=80%。"""
+    failures: list[str] = []
+    detail: dict = {}
+    train_metrics, train_fails = _eval_horizon_classification_split(root, acc, split="train")
+    test_metrics, test_fails = _eval_horizon_classification_split(root, acc, split="test")
+    failures.extend(train_fails)
+    failures.extend(test_fails)
+    if not train_metrics or not test_metrics:
+        return False, detail, failures
+
+    detail["train_classification"] = train_metrics
+    detail["test_classification"] = test_metrics
+    detail["val_classification"] = test_metrics  # 兼容旧报告字段
+    apply_train_test_f1_gates(train_metrics, test_metrics, acc, failures, prefix="horizon")
+    return len(failures) == 0, detail, failures
+
+
+def _check_leak_contract(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
+    """硬门禁：禁止数据泄露、未来函数、随机 val 回退。"""
+    failures: list[str] = []
+    detail: dict = {"contract_version": acc.get("acceptance_contract_version")}
+    if not acc.get("require_no_data_leak", True):
+        return True, detail, failures
+
+    th_hz = (root / "scripts" / "train_horizon_v16.py").read_text(encoding="utf-8")
+    if "no-temporal-val 已禁用" not in th_hz:
+        failures.append("train_horizon_missing_no_temporal_val_guard")
+    ak = (root / "scripts" / "accept_kn2_v16.py").read_text(encoding="utf-8")
+    if acc.get("forbid_random_val_fallback", True) and "int(n * 0.85)" in ak:
+        failures.append("accept_kn2_random_val_fallback_forbidden")
+    tu = (root / "zhulong" / "agent" / "training_utils.py").read_text(encoding="utf-8")
+    if acc.get("require_no_future_function", True):
+        if "bad_tick_revert_causal" not in tu:
+            failures.append("missing_causal_bad_tick_cleaning")
+        if "shift(-1)" in tu.split("bad_tick")[1][:500] if "bad_tick" in tu else False:
+            failures.append("future_shift_in_bad_tick_cleaning")
+
+    for rel in (
+        "data/clean/training_horizon_v16_location.npz",
+        "data/clean/kn2_training_v16_location.npz",
+    ):
+        p = root / rel
+        if not p.is_file():
+            failures.append(f"missing_npz_for_leak_audit:{rel}")
+            continue
+        data = load_npz(p)
+        if "time" not in data:
+            failures.append(f"npz_no_time:{rel}")
+            continue
+        train_m, test_m = temporal_train_val_masks(
+            data["time"],
+            train_end=TRAIN_END_DEFAULT,
+            val_year=int(acc.get("val_year", VAL_YEAR_DEFAULT)),
+        )
+        overlap = int((train_m & test_m).sum())
+        if overlap > 0:
+            failures.append(f"npz_train_test_overlap_{overlap}:{p.name}")
+
+    meta_path = root / "models" / "horizon_v16.meta.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        if acc.get("require_temporal_val_split", True) and meta.get("temporal_val") is not True:
+            failures.append("horizon_meta_temporal_val_not_true")
+    detail["leak_checks"] = len(failures) == 0
     return len(failures) == 0, detail, failures
 
 
@@ -175,8 +270,13 @@ def _check_oos(root: Path, cfg: dict, acc: dict) -> tuple[bool, dict, list[str]]
     detail = {"forecast": fc, "backtest": bt_stats, "forecast_side_ratio": ratio}
     if bt_stats.get("n_trades", 0) < int(acc.get("min_oos_trades", 500)):
         failures.append("oos_trades_below_threshold")
-    if float(bt_stats.get("win_rate", 0)) < float(acc.get("min_oos_win_rate", 0.55)):
-        failures.append("oos_win_rate_below_threshold")
+    check_win_rate(
+        float(bt_stats.get("win_rate", 0)),
+        acc,
+        failures,
+        label="oos",
+        override_min=float(acc.get("min_oos_win_rate", acc.get("min_win_rate", 0.60))),
+    )
     if not ok_ratio:
         failures.append("oos_forecast_imbalance")
     trade_long, trade_short = int(bt_stats.get("n_long", 0)), int(bt_stats.get("n_short", 0))
@@ -204,8 +304,13 @@ def _lockbox_march(root: Path, cfg: dict, acc: dict) -> tuple[bool, dict, list[s
     detail = {"forecast": result.get("forecast"), "backtest": b}
     if b.get("n_trades", 0) < int(acc.get("min_lockbox_march_trades", 20)):
         failures.append("march_trades_below_threshold")
-    if float(b.get("win_rate", 0)) < float(acc.get("min_lockbox_march_win_rate", 0.50)):
-        failures.append("march_win_rate_below_threshold")
+    check_win_rate(
+        float(b.get("win_rate", 0)),
+        acc,
+        failures,
+        label="lockbox_march",
+        override_min=float(acc.get("min_lockbox_march_win_rate", acc.get("min_win_rate", 0.60))),
+    )
     return len(failures) == 0, detail, failures
 
 
@@ -343,7 +448,7 @@ def _check_rl(root: Path, acc: dict, oos_detail: dict | None = None) -> tuple[bo
     metrics_log = root / "logs" / "training" / "rl_metrics_XAUUSD.jsonl"
     if not metrics_log.is_file():
         metrics_log = root / "logs" / "rl_metrics_XAUUSD.jsonl"
-    min_wr = float(acc.get("min_rl_eval_win_rate", 0.50))
+    min_wr = float(acc.get("min_rl_eval_win_rate", acc.get("min_win_rate", 0.60)))
     min_sample = int(acc.get("min_rl_eval_trades_sample", 30))
     if metrics_log.is_file():
         lines = [ln for ln in metrics_log.read_text(encoding="utf-8").strip().splitlines() if ln.strip()]
@@ -365,8 +470,7 @@ def _check_rl(root: Path, acc: dict, oos_detail: dict | None = None) -> tuple[bo
                 win_rate = oos_wr
         if trades_sampled < min_sample:
             failures.append("rl_eval_sample_too_small")
-        if win_rate < min_wr:
-            failures.append("rl_eval_win_rate_below_threshold")
+        check_win_rate(win_rate, acc, failures, label="rl_eval", override_min=min_wr)
     else:
         failures.append("missing_rl_metrics_log")
     return len(failures) == 0, detail, failures
@@ -459,8 +563,9 @@ def main() -> int:
     sections: dict = {}
 
     core_checks = (
+        ("leak_contract", lambda: _check_leak_contract(root, acc)),
         ("training", lambda: _check_training(root, acc)),
-        ("val_classification", lambda: _check_val_classification(root, acc)),
+        ("classification_splits", lambda: _check_classification_splits(root, acc)),
         ("onnx", lambda: _check_onnx(root, cfg, acc)),
     )
     extended_checks = (

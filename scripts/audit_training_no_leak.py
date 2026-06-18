@@ -131,14 +131,49 @@ def audit_npz_splits(root: Path, train_end: str, val_year: int) -> None:
         chk(f"npz val year {p.name}", int(val_m.sum()) > 500, f"val_bars={int(val_m.sum())}")
 
 
+def audit_acceptance_config(root: Path) -> None:
+    cfg_path = root / "config" / "v16_acceptance.json"
+    if not cfg_path.is_file():
+        chk("v16_acceptance.json", False, "missing")
+        return
+    acc = _read_meta(cfg_path)
+    chk("acceptance contract version", bool(acc.get("acceptance_contract_version")))
+    min_f1 = float(acc.get("min_macro_f1", 0))
+    chk("min_macro_f1 > 0.5", min_f1 >= 0.50, str(min_f1))
+    chk("min_train_macro_f1 > 0.5", float(acc.get("min_train_macro_f1", min_f1)) >= 0.50)
+    chk("min_test_macro_f1 > 0.5", float(acc.get("min_test_macro_f1", min_f1)) >= 0.50)
+    chk("max_train_test_f1_gap set", "max_train_test_f1_gap" in acc, str(acc.get("max_train_test_f1_gap")))
+    min_wr = float(acc.get("min_win_rate", 0))
+    chk("min_win_rate > 0.60", min_wr > 0.60, str(min_wr))
+    chk("require_no_data_leak", acc.get("require_no_data_leak") is True)
+    chk("require_no_future_function", acc.get("require_no_future_function") is True)
+    chk("require_temporal_val_split", acc.get("require_temporal_val_split") is True)
+    chk("forbid_random_val_fallback", acc.get("forbid_random_val_fallback") is True)
+
+
 def audit_acceptance_reports(root: Path) -> None:
     hz_report = root / "data" / "training" / "reports" / "v16" / "acceptance_report.json"
     if hz_report.is_file():
         rep = _read_meta(hz_report)
         chk("horizon acceptance_report passed", rep.get("passed") is True)
         sections = rep.get("sections") or {}
-        val_cls = sections.get("val_classification") or {}
-        chk("horizon val_classification ok", val_cls.get("ok") is True)
+        splits = sections.get("classification_splits") or {}
+        chk("horizon classification_splits ok", splits.get("ok") is True)
+        detail = splits.get("detail") or {}
+        train_cls = detail.get("train_classification") or {}
+        test_cls = detail.get("test_classification") or detail.get("val_classification") or {}
+        chk(
+            "horizon train macro_f1 > 0.5",
+            float(train_cls.get("macro_f1", 0)) > 0.50,
+            str(train_cls.get("macro_f1")),
+        )
+        chk(
+            "horizon test macro_f1 > 0.5",
+            float(test_cls.get("macro_f1", 0)) > 0.50,
+            str(test_cls.get("macro_f1")),
+        )
+        leak = sections.get("leak_contract") or {}
+        chk("horizon leak_contract ok", leak.get("ok") is True)
     else:
         chk("horizon acceptance_report", False, "missing")
 
@@ -146,6 +181,10 @@ def audit_acceptance_reports(root: Path) -> None:
     if kn2_report.is_file():
         rep = _read_meta(kn2_report)
         chk("kn2 acceptance_report passed", rep.get("passed") is True)
+        train_f1 = float((rep.get("train_eval") or {}).get("macro_f1", 0))
+        test_f1 = float((rep.get("test_eval") or rep.get("val_eval") or {}).get("macro_f1", 0))
+        chk("kn2 train macro_f1 > 0.5", train_f1 > 0.50, str(train_f1))
+        chk("kn2 test macro_f1 > 0.5", test_f1 > 0.50, str(test_f1))
     else:
         chk("kn2 acceptance_report", False, "missing (run accept_kn2_v16.py)")
 
@@ -181,6 +220,8 @@ def main() -> int:
 
     print("\n--- code guards ---")
     audit_code_guards(root)
+    print("\n--- acceptance config (hard thresholds) ---")
+    audit_acceptance_config(root)
 
     if not args.pre:
         print("\n--- horizon ---")
