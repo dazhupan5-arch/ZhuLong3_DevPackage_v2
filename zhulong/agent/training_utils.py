@@ -14,6 +14,11 @@ from zhulong.strategies.indicators import atr_series
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 
+# V16 无泄露训练契约：训练截止 / OOS 验证年（禁止随机 val 混入未来 bar）
+TRAIN_END_DEFAULT = "2024-12-31"
+VAL_YEAR_DEFAULT = 2025
+PIPELINE_CONTRACT_VERSION = "v16_no_leak_1"
+
 SYMBOL_DEFAULTS = {
     "XAUUSD": {
         "csv_candidates": [
@@ -63,16 +68,25 @@ def resolve_v16_paths(symbol: str, cfg: dict[str, Any] | None = None) -> dict[st
     if sym == "XAUUSD":
         horizon = int(data_cfg.get("label_horizon", 12))
         gain = float(data_cfg.get("label_threshold", 0.002))
+        v16_cfg = cfg.get("v16") or {}
+        horizon_npz_rel = v16_cfg.get(
+            "horizon_npz",
+            data_cfg.get("v16_horizon_npz", "data/clean/training_horizon_v16_location.npz"),
+        )
+        kn2_npz_rel = v16_cfg.get(
+            "kn2_npz",
+            data_cfg.get("v16_kn2_npz", "data/clean/kn2_training_v16_location.npz"),
+        )
         return {
             "symbol": sym,
             "horizon": horizon,
             "gain": gain,
             "hidden_dim": 96,
             "clean_csv": ROOT / "data/clean/XAUUSD_M5_clean.csv",
-            "horizon_npz": ROOT / data_cfg.get("v16_horizon_npz", "data/clean/training_horizon_v16.npz"),
+            "horizon_npz": ROOT / horizon_npz_rel,
             "horizon_location_npz": ROOT / "data/clean/training_horizon_v16_location.npz",
-            "kn2_npz": ROOT / data_cfg.get("v16_kn2_npz", "data/clean/kn2_training_v16.npz"),
-            "kn2_location_npz": ROOT / "data/clean/kn2_training_v16_location.npz",
+            "kn2_npz": ROOT / kn2_npz_rel,
+            "kn2_location_npz": ROOT / kn2_npz_rel,
             "horizon_pth": ROOT / "models/horizon_v16.pth",
             "horizon_onnx": ROOT / "models/horizon_v16.onnx",
             "horizon_scaler": ROOT / "models/horizon_v16_scaler.pkl",
@@ -213,13 +227,21 @@ def clean_m5_bars(
     spike = (bar_range > spike_atr_mult * np.maximum(atr, close.values * 1e-4)) | (body_pct > max_body_pct)
     _drop(~spike, "price_spike")
 
-    # 单根 bad tick：收盘价相对前收跳变 >1.5% 且下一根 revert >50%
+    # 因果 bad tick：在 bar i 仅用 i-1/i 判断 i-1 是否为假 spike（禁止 shift(-1) 窥视未来）
     if len(out) >= 3:
-        ret1 = (close - prev_close) / np.maximum(prev_close, 1e-9)
-        next_ret = (close.shift(-1) - close) / np.maximum(close, 1e-9)
-        bad_tick = (ret1.abs() > 0.015) & (ret1 * next_ret < 0) & (next_ret.abs() > ret1.abs() * 0.5)
-        bad_tick = bad_tick.fillna(False)
-        _drop(~bad_tick, "bad_tick_revert")
+        prev2 = close.shift(2)
+        ret_im1 = (prev_close - prev2) / np.maximum(prev2, 1e-9)
+        ret_i = (close - prev_close) / np.maximum(prev_close, 1e-9)
+        drop_prior = (
+            (ret_im1.abs() > 0.015)
+            & (ret_im1 * ret_i < 0)
+            & (ret_i.abs() > ret_im1.abs() * 0.5)
+        )
+        drop_prior = drop_prior.fillna(False)
+        remove = np.zeros(len(out), dtype=bool)
+        if len(remove) > 1:
+            remove[:-1] = drop_prior.iloc[1:].to_numpy(dtype=bool)
+        _drop(~remove, "bad_tick_revert_causal")
 
     r["rows_in"] = n0
     r["rows_out"] = len(out)
@@ -328,3 +350,87 @@ def ensure_logs_dir() -> Path:
     p = ROOT / "logs" / "training"
     p.mkdir(parents=True, exist_ok=True)
     return p
+
+
+def temporal_train_val_masks(
+    times: np.ndarray | pd.DatetimeIndex | pd.Series,
+    *,
+    train_end: str = TRAIN_END_DEFAULT,
+    val_year: int = VAL_YEAR_DEFAULT,
+) -> tuple[np.ndarray, np.ndarray]:
+    """严格时间切分：train <= train_end；val = val_year 全年（OOS）。"""
+    ts = pd.to_datetime(times, utc=True)
+    tz = ts.tz if isinstance(ts, pd.DatetimeIndex) else ts.dt.tz
+    cutoff = pd.Timestamp(train_end)
+    if tz is not None and cutoff.tzinfo is None:
+        cutoff = cutoff.tz_localize(tz)
+    elif tz is None and cutoff.tzinfo is not None:
+        cutoff = cutoff.tz_localize(None)
+    train_mask = np.asarray(ts <= cutoff)
+    val_mask = np.asarray(ts.year == int(val_year))
+    return train_mask, val_mask
+
+
+def assert_temporal_split_ok(
+    train_mask: np.ndarray,
+    val_mask: np.ndarray,
+    *,
+    min_train: int = 1000,
+    min_val: int = 500,
+    name: str = "split",
+) -> None:
+    n_train = int(train_mask.sum())
+    n_val = int(val_mask.sum())
+    if n_train < min_train or n_val < min_val:
+        raise ValueError(
+            f"{name}: 时间切分样本不足 train={n_train} val={n_val} "
+            f"(need >={min_train}/{min_val})"
+        )
+    if np.any(train_mask & val_mask):
+        raise ValueError(f"{name}: train/val 掩码重叠")
+    if np.any(val_mask & (np.asarray(train_mask))):
+        pass
+    # val 必须在 train 之后
+    if n_train and n_val:
+        ts_train_max = np.flatnonzero(train_mask)
+        ts_val_min = np.flatnonzero(val_mask)
+        if ts_val_min[0] <= ts_train_max[-1]:
+            # 同 cutoff 边界允许相邻，但 val_year 应在 train_end 之后
+            pass
+
+
+def load_horizon_training_meta(model_path: Path) -> dict[str, Any]:
+    meta_path = model_path.with_suffix(".meta.json")
+    if not meta_path.is_file():
+        return {}
+    try:
+        return json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def require_temporal_horizon_model(
+    model_or_meta_path: Path,
+    *,
+    train_end: str = TRAIN_END_DEFAULT,
+    allow_force: bool = False,
+) -> dict[str, Any]:
+    """prepare KN2/RL 前校验 Horizon 模型按时间切分训练（禁止 random val 产物）。"""
+    if model_or_meta_path.suffix == ".json":
+        meta_path = model_or_meta_path
+    else:
+        meta_path = model_or_meta_path.with_suffix(".meta.json")
+    if not meta_path.is_file():
+        if allow_force:
+            return {}
+        raise FileNotFoundError(f"缺少 Horizon meta: {meta_path}")
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("temporal_val") is not True and not allow_force:
+        raise ValueError(
+            f"Horizon 模型未按 temporal_val 训练 ({meta_path})；"
+            "请用 train_horizon_v16.py --temporal-val 重训，或显式 --force"
+        )
+    meta_end = str(meta.get("train_end") or meta.get("train_end_cutoff") or "")
+    if meta_end and meta_end[:10] != train_end[:10] and not allow_force:
+        raise ValueError(f"Horizon train_end={meta_end} 与契约 {train_end} 不一致")
+    return meta

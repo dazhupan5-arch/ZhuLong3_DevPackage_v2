@@ -172,6 +172,7 @@ class KnowledgeNetInference:
         self.scaler = None
         self._onnx_session = None
         self._ready = False
+        self._onnx_load_error: str | None = None
         sp = scaler_path or meta.get("scaler_path")
         if sp:
             sp_path = Path(sp)
@@ -241,6 +242,7 @@ class KnowledgeNetInference:
                 "onnxruntime 未安装，请运行 install_python_deps.ps1"
             ) from ex
         except Exception as ex:
+            self._onnx_load_error = f"{type(ex).__name__}:{ex}"
             logger.error("KnowledgeNet ONNX 加载失败 %s: %s", path, ex)
             self._onnx_session = None
             return False
@@ -429,6 +431,8 @@ def train_knowledge_net(
     times: np.ndarray | None = None,
     train_end: str = "2024-12-31",
     focal_gamma: float = 0.0,
+    init_from: str | Path | None = None,
+    init_scaler_from: str | Path | None = None,
 ) -> dict[str, Any]:
     torch, nn = _ensure_torch()
     from zhulong.utils.device import resolve_torch_device
@@ -447,21 +451,17 @@ def train_knowledge_net(
     if times is not None and len(times) == n:
         train_mask, val_mask = _time_split_mask(times, train_end)
         if train_mask.sum() < 1000 or val_mask.sum() < 500:
-            print(f"WARN: temporal split too small train={train_mask.sum()} val={val_mask.sum()}, fallback random")
-            times = None
-        else:
-            x_raw, y_raw = features[train_mask], y[train_mask]
-            x_va, y_va = features[val_mask], y[val_mask]
-            print(f"时间切分 train={len(x_raw)} val={len(x_va)} cutoff={train_end}")
-    if times is None or len(times) != n:
-        if shuffle_train:
-            x_raw, x_va, y_raw, y_va = train_test_split(
-                features, y, test_size=val_ratio, random_state=42, stratify=y,
+            raise ValueError(
+                f"时间切分样本不足: train={train_mask.sum()} val={val_mask.sum()} "
+                f"cutoff={train_end}；禁止回退随机 val（数据泄露）"
             )
-        else:
-            split = int(n * (1 - val_ratio))
-            x_raw, y_raw = features[:split], y[:split]
-            x_va, y_va = features[split:], y[split:]
+        x_raw, y_raw = features[train_mask], y[train_mask]
+        x_va, y_va = features[val_mask], y[val_mask]
+        print(f"时间切分 train={len(x_raw)} val={len(x_va)} cutoff={train_end}")
+    if times is None or len(times) != n:
+        raise ValueError(
+            "train_knowledge_net 需要 times 与 temporal 切分；禁止随机 stratified val"
+        )
 
     # --- 1. 特征去冗余（低维结构特征保留全列，避免 30→12 过度压缩） ---
     if features.shape[1] <= 40:
@@ -480,37 +480,51 @@ def train_knowledge_net(
         x_tr, y_tr = x_raw, y_raw
     counts = np.bincount(y_tr, minlength=3)
 
-    # --- 3. 标准化（先截尾再 StandardScaler，避免 col 17 等离群值主导方差） ---
-    for c in range(x_tr.shape[1]):
-        col = x_tr[:, c].astype(np.float64)
-        lo, hi = np.percentile(col, [1, 99])
-        col = np.clip(col, lo, hi)
-        x_tr[:, c] = col.astype(np.float32)
-        col_va = x_va[:, c].astype(np.float64)
-        x_va[:, c] = np.clip(col_va, lo, hi).astype(np.float32)
-    scaler = StandardScaler()
-    chunk = 10000
-    for start in range(0, len(x_tr), chunk):
-        end = min(start + chunk, len(x_tr))
-        scaler.partial_fit(np.asarray(x_tr[start:end], dtype=np.float64))
-    x_tr_out = np.empty_like(x_tr, dtype=np.float32)
-    for start in range(0, len(x_tr), chunk):
-        end = min(start + chunk, len(x_tr))
-        x_tr_out[start:end] = scaler.transform(x_tr[start:end]).astype(np.float32)
-    x_tr = x_tr_out
-    del x_tr_out
-    x_va_out = np.empty_like(x_va, dtype=np.float32)
-    for start in range(0, len(x_va), chunk):
-        end = min(start + chunk, len(x_va))
-        x_va_out[start:end] = scaler.transform(x_va[start:end]).astype(np.float32)
-    x_va = x_va_out
-    del x_va_out
-
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
+
+    # --- 3. 标准化（先截尾再 StandardScaler，避免 col 17 等离群值主导方差） ---
     sc_path = Path(scaler_path) if scaler_path else out.with_name(out.stem.replace("knowledge_net", "knowledge_scaler") + ".pkl")
     if sc_path.name == out.name:
         sc_path = out.with_name("knowledge_scaler.pkl")
+
+    init_scaler_path = Path(init_scaler_from) if init_scaler_from else None
+    if init_scaler_path and init_scaler_path.is_file():
+        scaler = joblib.load(init_scaler_path)
+        print(f"Loaded scaler from {init_scaler_path}", flush=True)
+        for arr in (x_tr, x_va):
+            for c in range(arr.shape[1]):
+                col = arr[:, c].astype(np.float64)
+                lo, hi = np.percentile(col, [1, 99])
+                arr[:, c] = np.clip(col, lo, hi).astype(np.float32)
+        x_tr = scaler.transform(x_tr).astype(np.float32)
+        x_va = scaler.transform(x_va).astype(np.float32)
+    else:
+        for c in range(x_tr.shape[1]):
+            col = x_tr[:, c].astype(np.float64)
+            lo, hi = np.percentile(col, [1, 99])
+            col = np.clip(col, lo, hi)
+            x_tr[:, c] = col.astype(np.float32)
+            col_va = x_va[:, c].astype(np.float64)
+            x_va[:, c] = np.clip(col_va, lo, hi).astype(np.float32)
+        scaler = StandardScaler()
+        chunk = 10000
+        for start in range(0, len(x_tr), chunk):
+            end = min(start + chunk, len(x_tr))
+            scaler.partial_fit(np.asarray(x_tr[start:end], dtype=np.float64))
+        x_tr_out = np.empty_like(x_tr, dtype=np.float32)
+        for start in range(0, len(x_tr), chunk):
+            end = min(start + chunk, len(x_tr))
+            x_tr_out[start:end] = scaler.transform(x_tr[start:end]).astype(np.float32)
+        x_tr = x_tr_out
+        del x_tr_out
+        x_va_out = np.empty_like(x_va, dtype=np.float32)
+        for start in range(0, len(x_va), chunk):
+            end = min(start + chunk, len(x_va))
+            x_va_out[start:end] = scaler.transform(x_va[start:end]).astype(np.float32)
+        x_va = x_va_out
+        del x_va_out
+
     joblib.dump(scaler, sc_path)
 
     # --- Device ---
@@ -533,6 +547,11 @@ def train_knowledge_net(
     # --- 模型 ---
     KnCls, _ = _knowledge_net_class(num_res_blocks=num_res_blocks)
     model = KnCls(len(keep_cols), hidden_dim=hidden_dim, embed_dim=embed_dim, num_res_blocks=num_res_blocks).to(device)
+    init_path = Path(init_from) if init_from else None
+    if init_path and init_path.is_file():
+        state = torch.load(init_path, map_location=device, weights_only=True)
+        model.load_state_dict(state, strict=True)
+        print(f"Warm-start from {init_path}", flush=True)
     opt = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs)
 

@@ -160,3 +160,16 @@ backtest:
   min_winrate: 0.50
   min_profit_factor: 1.3
   max_drawdown: 0.25
+
+# V16 无泄露训练契约（retrain_v16_no_leak.ps1）
+v16:
+  pipeline_contract: "v16_no_leak_1"
+  train_end: "2024-12-31"
+  val_year: 2025
+  temporal_val: true
+  forbid_random_val: true
+  horizon_npz: "data/clean/training_horizon_v16_location.npz"
+  kn2_npz: "data/clean/kn2_training_v16_location.npz"
+  min_val_macro_f1: 0.50
+  min_class_precision: 0.80
+  min_class_recall: 0.80

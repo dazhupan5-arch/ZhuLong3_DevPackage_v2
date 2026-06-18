@@ -27,7 +27,7 @@ import pandas as pd
 
 from zhulong.agent.knowledge_net_kn2 import encode_position_state, train_kn2_end_to_end, train_kn2_fast
 from zhulong.agent.kn2_location_labels import load_kn2_v16_labels
-from zhulong.agent.training_utils import load_npz
+from zhulong.agent.training_utils import load_npz, temporal_train_val_masks, assert_temporal_split_ok, TRAIN_END_DEFAULT, VAL_YEAR_DEFAULT
 from zhulong.strategies.indicators import atr_series
 from zhulong.utils.device import print_gpu_status
 
@@ -84,6 +84,8 @@ def main() -> int:
         default="",
         help="hold,long,short[,...]；空则按 label 类型自动选择",
     )
+    parser.add_argument("--train-end", default=TRAIN_END_DEFAULT)
+    parser.add_argument("--val-year", type=int, default=VAL_YEAR_DEFAULT)
     args = parser.parse_args()
 
     npz_path = _ROOT / args.npz
@@ -117,18 +119,22 @@ def main() -> int:
         atr = atr_series(df).bfill().fillna(df["close"] * 0.001).values.astype(np.float32)
     df = df.assign(atr=atr)
 
-    train_mask = df.index.year <= 2024
-    val_mask = df.index.year == 2025
-    if val_mask.sum() < 1000:
+    train_mask, val_mask = temporal_train_val_masks(
+        df.index, train_end=args.train_end, val_year=args.val_year
+    )
+    train_idx = np.asarray(train_mask, dtype=bool)
+    val_idx = np.asarray(val_mask, dtype=bool)
+    try:
+        assert_temporal_split_ok(train_idx, val_idx, name="KN2")
+    except ValueError as ex:
+        print(f"ERROR: {ex}")
         split = int(n * 0.85)
         train_idx = np.zeros(n, dtype=bool)
         train_idx[:split] = True
         val_idx = ~train_idx
-    else:
-        train_idx = np.asarray(train_mask, dtype=bool)
-        val_idx = np.asarray(val_mask, dtype=bool)
+        print(f"WARN: fallback index split train={train_idx.sum():,} val={val_idx.sum():,}")
 
-    print(f"train={train_idx.sum():,} val={val_idx.sum():,}")
+    print(f"train={train_idx.sum():,} val(OOS {args.val_year})={val_idx.sum():,}")
 
     print(f"Loading KN2 labels (mode={args.label_mode})...")
     t_label = time.perf_counter()
@@ -168,7 +174,6 @@ def main() -> int:
 
     t0 = time.perf_counter()
     train_kw = dict(
-        val_ratio=0.15,
         epochs=args.epochs,
         patience=args.patience,
         lr=args.lr,
@@ -180,6 +185,9 @@ def main() -> int:
         device=args.device,
         sequence_length=64,
         class_weights=class_weights,
+        val_market_features=market_feat[val_idx],
+        val_position_states=pos_states[val_idx],
+        val_targets={k: v[val_idx] for k, v in labels.items()},
     )
     if args.mode == "fast":
         stats = train_kn2_fast(
@@ -205,6 +213,12 @@ def main() -> int:
         "label_version": label_version,
         "label_mode": args.label_mode,
         "npz": str(npz_path),
+        "train_end": args.train_end,
+        "val_year": args.val_year,
+        "temporal_val": True,
+        "train_end": args.train_end,
+        "val_year": args.val_year,
+        "pipeline_contract": "v16_no_leak_1",
         "training_rows": int(train_idx.sum()),
         "val_rows": int(val_idx.sum()),
         "epochs_requested": args.epochs,

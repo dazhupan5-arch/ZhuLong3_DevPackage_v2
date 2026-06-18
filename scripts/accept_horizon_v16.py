@@ -18,12 +18,16 @@ import torch  # noqa: F401 — Windows: 须最先加载
 import numpy as np
 import pandas as pd
 
+from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
 from zhulong.agent.horizon_predictor import HorizonPredictor, direction_from_probs
 from zhulong.agent.knowledge_net import KnowledgeNetInference
 from zhulong.agent.structure_service import StructureService
+from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, VAL_YEAR_DEFAULT
 from zhulong.engine.agent_engine import load_agent_config, run_agent_tick
 from zhulong.training.lgb.data_io import load_vendor_csv
 from zhulong.training.v10.backtest import backtest_both
+
+from scripts.v16_acceptance_metrics import apply_classification_thresholds, classification_report
 
 
 def _load_acceptance(root: Path) -> dict:
@@ -65,10 +69,59 @@ def _check_training(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
         detail["macro_f1"] = float(meta.get("macro_f1", 0))
         if detail["val_accuracy"] < float(acc.get("min_val_accuracy", 0.48)):
             failures.append("val_accuracy_below_threshold")
-        if detail["macro_f1"] < float(acc.get("min_val_macro_f1", 0.45)):
+        if detail["macro_f1"] <= float(acc.get("min_val_macro_f1", 0.50)):
             failures.append("macro_f1_below_threshold")
     else:
         failures.append("missing_horizon_meta")
+    return len(failures) == 0, detail, failures
+
+
+def _check_val_classification(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
+    """2025 OOS 上评估 Horizon 分类：macro F1>0.5，long/short P/R>=80%。"""
+    failures: list[str] = []
+    detail: dict = {}
+    npz_path = root / "data" / "clean" / "training_horizon_v16_location.npz"
+    onnx = root / "models" / "horizon_v16.onnx"
+    scaler = root / "models" / "horizon_v16_scaler.pkl"
+    if not npz_path.is_file() or not onnx.is_file():
+        failures.append("missing_npz_or_onnx_for_val_classification")
+        return False, detail, failures
+
+    data = load_npz(npz_path)
+    struct = np.asarray(data["struct"], dtype=np.float32)
+    y_signed, _ = resolve_horizon_training_labels(data, label_mode="location")
+    y_true = signed_to_class(y_signed)
+    times = data.get("time")
+    if times is None:
+        failures.append("npz_missing_time")
+        return False, detail, failures
+
+    _, val_mask = temporal_train_val_masks(times, val_year=int(acc.get("val_year", VAL_YEAR_DEFAULT)))
+    if int(val_mask.sum()) < 500:
+        failures.append("val_year_sample_too_small")
+        return False, detail, failures
+
+    kn = KnowledgeNetInference(onnx, scaler_path=scaler if scaler.is_file() else None)
+    if not kn.is_ready:
+        failures.append("horizon_onnx_not_ready_for_val")
+        return False, detail, failures
+
+    idx = np.where(val_mask)[0]
+    max_bars = int(acc.get("max_val_classification_bars", 25000))
+    if len(idx) > max_bars:
+        step = max(1, len(idx) // max_bars)
+        idx = idx[::step][:max_bars]
+
+    y_pred = np.zeros(len(idx), dtype=np.int64)
+    chunk = 4096
+    for start in range(0, len(idx), chunk):
+        sel = idx[start : start + chunk]
+        probs, _ = kn.predict(struct[sel])
+        y_pred[start : start + len(sel)] = np.argmax(probs, axis=1)
+
+    metrics = classification_report(y_true[idx], y_pred)
+    detail["val_classification"] = metrics
+    apply_classification_thresholds(metrics, acc, failures, prefix="val")
     return len(failures) == 0, detail, failures
 
 
@@ -397,6 +450,7 @@ def main() -> int:
 
     for name, fn in (
         ("training", lambda: _check_training(root, acc)),
+        ("val_classification", lambda: _check_val_classification(root, acc)),
         ("onnx", lambda: _check_onnx(root, cfg, acc)),
         ("oos", lambda: _check_oos(root, cfg, acc)),
         ("lockbox_march", lambda: _lockbox_march(root, cfg, acc)),

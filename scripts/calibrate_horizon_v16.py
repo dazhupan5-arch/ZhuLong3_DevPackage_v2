@@ -19,7 +19,7 @@ import torch
 from sklearn.metrics import f1_score
 
 from zhulong.agent.knowledge_net import _knowledge_net_class, _time_split_mask
-from zhulong.agent.training_utils import load_npz, signed_to_class
+from zhulong.agent.training_utils import load_npz, signed_to_class, TRAIN_END_DEFAULT
 
 
 def _macro_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -49,8 +49,13 @@ def main() -> int:
     parser.add_argument("--scaler", default="models/horizon_v16_scaler.pkl")
     parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
     parser.add_argument("--target-f1", type=float, default=0.45)
-    parser.add_argument("--temporal-val", action="store_true")
-    parser.add_argument("--train-end", default="2024-12-31")
+    parser.add_argument(
+        "--temporal-val",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="默认：train<=train-end, val=之后",
+    )
+    parser.add_argument("--train-end", default=TRAIN_END_DEFAULT)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--apply", action="store_true", help="写入 meta 校准参数")
     args = parser.parse_args()
@@ -68,12 +73,12 @@ def main() -> int:
 
     if args.temporal_val and times is not None:
         train_mask, val_mask = _time_split_mask(np.asarray(times), args.train_end)
+    elif args.temporal_val:
+        print("ERROR: --temporal-val 需要 NPZ 含 time 列")
+        return 1
     else:
-        n = len(x)
-        split = int(n * (1.0 - args.val_ratio))
-        val_mask = np.zeros(n, dtype=bool)
-        val_mask[split:] = True
-        train_mask = ~val_mask
+        print("ERROR: --no-temporal-val 已禁用")
+        return 1
 
     x_va = x[val_mask]
     y_va = y[val_mask]

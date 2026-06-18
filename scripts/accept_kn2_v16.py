@@ -27,36 +27,28 @@ import pandas as pd
 
 from zhulong.agent.kn2_location_labels import load_kn2_v16_labels
 from zhulong.agent.knowledge_net_kn2 import KN2Inference, encode_position_state
-from zhulong.agent.training_utils import load_npz
-from zhulong.strategies.indicators import atr_series
+from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, VAL_YEAR_DEFAULT
+from scripts.v16_acceptance_metrics import apply_classification_thresholds, classification_report
 
-# 沿用 KN2 legacy 验收门槛（hold/long/short 三分类）
+# 验收门槛（与 config/v16_acceptance.json 对齐，KN2 动作为 hold/long/short）
 MIN_VAL_ACC = 0.50
-MIN_CLASS_PRECISION = 0.30
-MIN_CLASS_PRED_PCT = 0.10
 MARKET_DIM = 65
 
 
+def _load_acceptance(root: Path) -> dict:
+    p = root / "config" / "v16_acceptance.json"
+    if p.is_file():
+        return json.loads(p.read_text(encoding="utf-8-sig"))
+    return {
+        "min_val_macro_f1": 0.50,
+        "min_class_precision": 0.80,
+        "min_class_recall": 0.80,
+        "strict_classes": ["long", "short"],
+    }
+
+
 def _class_metrics(y_true: np.ndarray, y_pred: np.ndarray, n_classes: int = 3) -> dict:
-    names = ["hold", "long", "short"]
-    out: dict = {"accuracy": float((y_true == y_pred).mean())}
-    pred_counts = np.bincount(y_pred, minlength=n_classes)
-    total = len(y_true)
-    per_class: dict = {}
-    for c in range(n_classes):
-        tp = int(((y_pred == c) & (y_true == c)).sum())
-        pred_n = int(pred_counts[c])
-        true_n = int((y_true == c).sum())
-        prec = tp / pred_n if pred_n else 0.0
-        rec = tp / true_n if true_n else 0.0
-        per_class[names[c]] = {
-            "precision": round(prec, 4),
-            "recall": round(rec, 4),
-            "pred_pct": round(pred_n / max(total, 1), 4),
-            "support": true_n,
-        }
-    out["per_class"] = per_class
-    return out
+    return classification_report(y_true, y_pred, class_names=("hold", "long", "short"))
 
 
 def _eval_val_sequences(
@@ -92,6 +84,7 @@ def main() -> int:
     )
     parser.add_argument("--max-val-bars", type=int, default=20000, help="0=all val bars")
     args = parser.parse_args()
+    acc_cfg = _load_acceptance(_ROOT)
 
     model_path = _ROOT / args.model
     meta_path = model_path.with_suffix(".meta.json")
@@ -153,7 +146,7 @@ def main() -> int:
         },
         index=times[:n],
     )
-    val_mask = np.asarray(df.index.year == 2025, dtype=bool)
+    val_mask = np.asarray(df.index.year == int(acc_cfg.get("val_year", VAL_YEAR_DEFAULT)), dtype=bool)
     if val_mask.sum() < 1000:
         val_mask = np.zeros(n, dtype=bool)
         val_mask[int(n * 0.85) :] = True
@@ -210,17 +203,14 @@ def main() -> int:
     acc = metrics["accuracy"]
     if acc <= MIN_VAL_ACC:
         report["failures"].append(f"val_accuracy_below_{MIN_VAL_ACC}")
-    for cls in ("hold", "long", "short"):
-        pc = metrics["per_class"][cls]
-        if pc["precision"] <= MIN_CLASS_PRECISION:
-            report["failures"].append(f"{cls}_precision_below_{MIN_CLASS_PRECISION}")
-        if pc["pred_pct"] <= MIN_CLASS_PRED_PCT:
-            report["failures"].append(f"{cls}_pred_pct_below_{MIN_CLASS_PRED_PCT}")
+    apply_classification_thresholds(metrics, acc_cfg, report["failures"], prefix="kn2")
 
     report["thresholds"] = {
         "min_val_accuracy": MIN_VAL_ACC,
-        "min_class_precision": MIN_CLASS_PRECISION,
-        "min_class_pred_pct": MIN_CLASS_PRED_PCT,
+        "min_val_macro_f1": acc_cfg.get("min_val_macro_f1", 0.50),
+        "min_class_precision": acc_cfg.get("min_class_precision", 0.80),
+        "min_class_recall": acc_cfg.get("min_class_recall", 0.80),
+        "strict_classes": acc_cfg.get("strict_classes", ["long", "short"]),
     }
     report["passed"] = len(report["failures"]) == 0
 
@@ -231,11 +221,12 @@ def main() -> int:
 
     print("\n=== KN2 V16 Acceptance ===")
     print(f"val_accuracy: {acc:.2%} (need > {MIN_VAL_ACC:.0%})")
+    print(f"macro_f1: {metrics.get('macro_f1', 0):.4f} (need > {acc_cfg.get('min_val_macro_f1', 0.5)})")
     for cls in ("hold", "long", "short"):
         pc = metrics["per_class"][cls]
         print(
             f"  {cls}: prec={pc['precision']:.2%} recall={pc['recall']:.2%} "
-            f"pred%={pc['pred_pct']:.1%} support={pc['support']}"
+            f"f1={pc.get('f1', 0):.2%} support={pc['support']}"
         )
     print(f"val_loss(meta): {meta.get('val_loss')}")
     print(f"PASSED: {report['passed']}")

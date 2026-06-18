@@ -738,12 +738,41 @@ class KN2Inference:
 # ==============================================================================
 
 
+def _kn2_sequence_ranges(n_bars: int, sequence_length: int) -> list[tuple[int, int]]:
+    seqs: list[tuple[int, int]] = []
+    for start in range(0, n_bars - sequence_length, sequence_length // 2):
+        end = min(start + sequence_length, n_bars)
+        if end - start < sequence_length // 2:
+            continue
+        seqs.append((start, end))
+    return seqs
+
+
+def _kn2_train_val_plan(
+    n_train_bars: int,
+    sequence_length: int,
+    *,
+    val_ratio: float,
+    n_val_bars: int | None = None,
+) -> tuple[list[tuple[int, int]], list[tuple[int, int]], bool]:
+    """训练序列来自 train 切片；若提供 n_val_bars 则 val 为独立 OOS 段（无随机切分）。"""
+    train_seqs = _kn2_sequence_ranges(n_train_bars, sequence_length)
+    if n_val_bars is not None and n_val_bars > sequence_length // 2:
+        return train_seqs, _kn2_sequence_ranges(n_val_bars, sequence_length), True
+    n_seqs = len(train_seqs)
+    split = int(n_seqs * (1 - val_ratio))
+    return train_seqs[:split], train_seqs[split:], False
+
+
 def train_kn2_end_to_end(
     market_features: np.ndarray,
     position_states: np.ndarray,
     targets: dict[str, np.ndarray],
     *,
     val_ratio: float = 0.2,
+    val_market_features: np.ndarray | None = None,
+    val_position_states: np.ndarray | None = None,
+    val_targets: dict[str, np.ndarray] | None = None,
     epochs: int = 200,
     batch_size: int = 128,
     lr: float = 0.0005,
@@ -790,22 +819,22 @@ def train_kn2_end_to_end(
     )
     model = KnCls().to(device_obj)
 
-    # 数据准备：切成序列
     n_bars = len(market_features)
-    seqs = []
-    for start in range(0, n_bars - sequence_length, sequence_length // 2):
-        end = min(start + sequence_length, n_bars)
-        if end - start < sequence_length // 2:
-            continue
-        seqs.append((start, end))
-
-    # 划分训练/验证
-    n_seqs = len(seqs)
-    train_seqs = seqs[: int(n_seqs * (1 - val_ratio))]
-    val_seqs = seqs[int(n_seqs * (1 - val_ratio)):]
+    val_separate = val_market_features is not None and val_targets is not None
+    n_val_bars = len(val_market_features) if val_separate else None
+    train_seqs, val_seqs, _ = _kn2_train_val_plan(
+        n_bars, sequence_length, val_ratio=val_ratio, n_val_bars=n_val_bars
+    )
+    val_mf = val_market_features if val_separate else market_features
+    val_ps = (
+        val_position_states
+        if val_separate and val_position_states is not None
+        else position_states
+    )
+    val_tg = val_targets if val_separate else targets
     print(
-        f"  KN2 sequences: {n_seqs:,} (train={len(train_seqs):,} val={len(val_seqs):,}) "
-        f"seq_len={sequence_length} device={device_obj.type}",
+        f"  KN2 sequences: train={len(train_seqs):,} val={len(val_seqs):,} "
+        f"seq_len={sequence_length} oos_val={val_separate} device={device_obj.type}",
         flush=True,
     )
 
@@ -920,10 +949,10 @@ def train_kn2_end_to_end(
             for seq_start, seq_end in val_seqs:
                 seq_len = seq_end - seq_start
                 mf_seq = torch.tensor(
-                    market_features[seq_start:seq_end], dtype=torch.float32
+                    val_mf[seq_start:seq_end], dtype=torch.float32
                 ).to(device_obj)
                 ps_seq = torch.tensor(
-                    position_states[seq_start:seq_end], dtype=torch.float32
+                    val_ps[seq_start:seq_end], dtype=torch.float32
                 ).to(device_obj)
 
                 h = None
@@ -936,8 +965,8 @@ def train_kn2_end_to_end(
                     h = outputs["hidden"]
 
                     loss = torch.tensor(0.0, device=device_obj)
-                    if "action" in targets and seq_start + t < len(targets["action"]):
-                        ta = torch.tensor([targets["action"][seq_start + t]], dtype=torch.long).to(device_obj)
+                    if "action" in val_tg and seq_start + t < len(val_tg["action"]):
+                        ta = torch.tensor([val_tg["action"][seq_start + t]], dtype=torch.long).to(device_obj)
                         loss = loss + action_loss_fn(outputs["action_logits"], ta)
 
                     seq_vloss += float(loss.item())
@@ -984,6 +1013,9 @@ def train_kn2_fast(
     targets: dict[str, np.ndarray],
     *,
     val_ratio: float = 0.2,
+    val_market_features: np.ndarray | None = None,
+    val_position_states: np.ndarray | None = None,
+    val_targets: dict[str, np.ndarray] | None = None,
     epochs: int = 200,
     batch_size: int = 32,   # number of SEQUENCES per batch (not bars)
     lr: float = 0.0005,
@@ -1015,18 +1047,23 @@ def train_kn2_fast(
     model = KnCls().to(device_obj)
 
     n_bars = len(market_features)
-    # Build fixed-length sequences with same size for batching
-    seqs = []
-    for start in range(0, n_bars - sequence_length, sequence_length // 2):
-        end = min(start + sequence_length, n_bars)
-        if end - start >= sequence_length // 2:
-            seqs.append((start, end))
+    val_separate = val_market_features is not None and val_targets is not None
+    n_val_bars = len(val_market_features) if val_separate else None
+    train_seqs, val_seqs, _ = _kn2_train_val_plan(
+        n_bars, sequence_length, val_ratio=val_ratio, n_val_bars=n_val_bars
+    )
+    val_mf = val_market_features if val_separate else market_features
+    val_ps = (
+        val_position_states
+        if val_separate and val_position_states is not None
+        else position_states
+    )
+    val_tg = val_targets if val_separate else targets
 
-    n_seqs = len(seqs)
-    train_seqs = seqs[:int(n_seqs * (1 - val_ratio))]
-    val_seqs = seqs[int(n_seqs * (1 - val_ratio)):]
-
-    print(f"  Sequences: {n_seqs} (train={len(train_seqs)} val={len(val_seqs)})", flush=True)
+    print(
+        f"  Sequences: train={len(train_seqs)} val={len(val_seqs)} oos_val={val_separate}",
+        flush=True,
+    )
 
     cw = _normalize_action_class_weights(class_weights, num_actions)
     action_loss_fn = nn.CrossEntropyLoss(
@@ -1166,8 +1203,8 @@ def train_kn2_fast(
 
                 for i, (s, e) in enumerate(batch_seqs):
                     sl = e - s
-                    mf_batch[:sl, i] = torch.tensor(market_features[s:e], dtype=torch.float32)
-                    ps_batch[:sl, i] = torch.tensor(position_states[s:e], dtype=torch.float32)
+                    mf_batch[:sl, i] = torch.tensor(val_mf[s:e], dtype=torch.float32)
+                    ps_batch[:sl, i] = torch.tensor(val_ps[s:e], dtype=torch.float32)
 
                 m_enc = model.market_encoder(mf_batch)
                 p_enc = model.pos_encoder(ps_batch)
@@ -1177,11 +1214,11 @@ def train_kn2_fast(
                 vloss = torch.tensor(0.0, device=device_obj)
                 for i, (s, e) in enumerate(batch_seqs):
                     sl = e - s
-                    if "action" in targets:
-                        ta = torch.tensor(targets["action"][s:e], dtype=torch.long, device=device_obj)
+                    if "action" in val_tg:
+                        ta = torch.tensor(val_tg["action"][s:e], dtype=torch.long, device=device_obj)
                         vloss = vloss + action_loss_fn(batch_act[:sl, i], ta)
-                    if "action_probs" in targets:
-                        tp = torch.tensor(targets["action_probs"][s:e], dtype=torch.float32, device=device_obj)
+                    if "action_probs" in val_tg:
+                        tp = torch.tensor(val_tg["action_probs"][s:e], dtype=torch.float32, device=device_obj)
                         vloss = vloss + 0.5 * soft_action_loss_fn(
                             torch.log_softmax(batch_act[:sl, i, :3], dim=-1), tp)
                 vloss = vloss / max(B, 1)
@@ -1203,6 +1240,8 @@ def train_kn2_fast(
                 "architecture": "kn2_v16" if md == 65 else "kn2_legacy",
                 "val_loss": avg_val,
                 "class_weights": cw,
+                "temporal_val": True,
+                "pipeline_contract": "v16_no_leak_1",
                 "scenario_trained": "scenarios" in targets,
                 "scenario_horizons": SCENARIO_HORIZONS if "scenarios" in targets else [],
             }

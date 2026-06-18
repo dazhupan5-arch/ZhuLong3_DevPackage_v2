@@ -10,12 +10,20 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
 import torch  # noqa: F401
+
+from zhulong.agent.training_utils import (
+    PIPELINE_CONTRACT_VERSION,
+    TRAIN_END_DEFAULT,
+    load_npz,
+    require_temporal_horizon_model,
+)
 
 KN2_V16_MARKET_DIM = 65
 STRUCT_DIM = 30
@@ -48,6 +56,12 @@ def main() -> int:
     parser.add_argument("--checkpoint-every", type=int, default=50000)
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--rebuild", action="store_true")
+    parser.add_argument("--train-end", default=TRAIN_END_DEFAULT)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="跳过 Horizon temporal_val meta 校验（不推荐）",
+    )
     args = parser.parse_args()
 
     npz_path = _ROOT / args.npz
@@ -66,6 +80,19 @@ def main() -> int:
     struct = np.asarray(raw["struct"], dtype=np.float32)
     n = len(struct)
     print(f"struct rows: {n:,} x {struct.shape[1]}")
+
+    onnx = _ROOT / args.horizon_onnx
+    try:
+        hz_meta = require_temporal_horizon_model(
+            onnx, train_end=args.train_end, allow_force=args.force
+        )
+        print(
+            f"Horizon meta OK: temporal_val={hz_meta.get('temporal_val')} "
+            f"train_end={hz_meta.get('train_end', args.train_end)}"
+        )
+    except (FileNotFoundError, ValueError) as ex:
+        print(f"ERROR: {ex}")
+        return 1
 
     if args.rebuild and probs_cache.is_file():
         probs_cache.unlink()
@@ -132,6 +159,10 @@ def main() -> int:
     out["market_feat"] = market_feat
     out["market_dim"] = np.array([KN2_V16_MARKET_DIM])
     out["feature_layout"] = np.array(["struct30+horizon_prob3+horizon_embed32"])
+    out["pipeline_contract"] = np.array([PIPELINE_CONTRACT_VERSION])
+    out["pipeline_train_end"] = np.array([args.train_end])
+    out["horizon_temporal_val"] = np.array([True])
+    out["horizon_onnx_used"] = np.array([str(args.horizon_onnx)])
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(out_path, **out)

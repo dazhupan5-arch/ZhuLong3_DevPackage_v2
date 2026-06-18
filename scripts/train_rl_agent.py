@@ -25,8 +25,10 @@ from zhulong.agent.training_utils import (
     filter_npz_by_year,
     load_npz,
     load_training_config,
+    require_temporal_horizon_model,
     resolve_symbol_paths,
     resolve_v16_paths,
+    TRAIN_END_DEFAULT,
 )
 from zhulong.utils.device import print_gpu_status, resolve_sb3_device
 
@@ -192,6 +194,15 @@ def main() -> int:
     bt_cfg = cfg.get("backtest") or {}
     train_through = int(rl_cfg.get("train_through_year", bt_cfg.get("eval_year", 2025) - 1))
     eval_bars = int(rl_cfg.get("eval_bars", 15000))
+
+    if args.v16:
+        train_end = f"{train_through}-12-31"
+        try:
+            require_temporal_horizon_model(kn_path, train_end=train_end)
+        except (FileNotFoundError, ValueError) as ex:
+            print(f"ERROR: {ex}")
+            print("请先运行 scripts/retrain_v16_no_leak.ps1 的 Horizon 阶段。")
+            return 1
     max_episode_steps = int(rl_cfg.get("max_episode_steps", 5000))
     train_data, eval_data = _train_eval_slices(
         data,
@@ -443,6 +454,8 @@ def main() -> int:
         "state_scaler": str(scaler_path),
         "knowledge_model": str(kn_path),
         "architecture": "v16" if args.v16 else "legacy",
+        "pipeline_contract": "v16_no_leak_1" if args.v16 else "",
+        "train_through_year": train_through,
     }
     summary_path = ensure_logs_dir() / f"rl_{args.symbol.upper()}.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

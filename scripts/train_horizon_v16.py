@@ -18,10 +18,10 @@ import torch  # noqa: F401
 
 from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
 from zhulong.agent.knowledge_net import train_knowledge_net
-from zhulong.agent.training_utils import ensure_logs_dir, load_npz, resolve_v16_paths, signed_to_class
+from zhulong.agent.training_utils import ensure_logs_dir, load_npz, resolve_v16_paths, signed_to_class, TRAIN_END_DEFAULT
 from zhulong.utils.device import print_gpu_status
 
-MIN_MACRO_F1 = 0.45
+MIN_MACRO_F1 = 0.50
 
 
 def main() -> int:
@@ -51,8 +51,13 @@ def main() -> int:
     parser.add_argument("--hidden-dim", type=int, default=96)
     parser.add_argument("--embed-dim", type=int, default=32)
     parser.add_argument("--focal-gamma", type=float, default=0.0, help="0=CE, 1.5~2.0 recommended")
-    parser.add_argument("--temporal-val", action="store_true", help="train<=2024, val=2025")
-    parser.add_argument("--train-end", default="2024-12-31")
+    parser.add_argument(
+        "--temporal-val",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="默认开启：train<=train-end, val=之后（禁止随机 val 泄露）",
+    )
+    parser.add_argument("--train-end", default=TRAIN_END_DEFAULT)
     parser.add_argument("--val-ratio", type=float, default=0.15)
     parser.add_argument("--min-f1", type=float, default=0.0, help="exit 1 if macro_f1 below (0=ignore)")
     parser.add_argument("--out", default="", help="输出 .pth（默认按 symbol）")
@@ -86,6 +91,9 @@ def main() -> int:
     y = signed_to_class(y_signed)
     times = data.get("time")
     print(f"train samples: {len(x)} x {x.shape[1]} label_mode={args.label_mode} ({label_version})")
+    if not args.temporal_val:
+        print("ERROR: --no-temporal-val 已禁用（禁止随机验证泄露）。请使用 --temporal-val。")
+        return 1
 
     out_model = _ROOT / args.out
     out_scaler = v16["horizon_scaler"]
@@ -135,7 +143,9 @@ def main() -> int:
         "lr": args.lr,
         "patience": args.patience,
         "focal_gamma": args.focal_gamma,
-        "temporal_val": args.temporal_val,
+        "temporal_val": True,
+        "train_end": args.train_end,
+        "pipeline_contract": "v16_no_leak_1",
         "epochs_requested": args.epochs,
         "retrain_tag": args.log_suffix or None,
         "label_mode": args.label_mode,
