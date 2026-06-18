@@ -27,8 +27,10 @@
                     },
     "execution_composer":  {
                                "valid_bars":  48,
-                               "immediate_quality_min":  0.72,
-                               "limit_quality_min":  0.38
+                               "immediate_quality_min":  0.78,
+                               "limit_quality_min":  0.45,
+                               "entry_quality_position_weight":  0.70,
+                               "location_score_mode":  "v2"
                            },
     "execution_gates":  {
                             "structure_location_gate":  true,
@@ -108,7 +110,7 @@
                         "hold_penalty":  0.0,
                         "execution_parity":  {
                                                   "enabled":  true,
-                                                  "entry_quality_bonus":  0.05,
+                                                  "entry_quality_bonus":  0.15,
                                                   "pending_expire_bars":  48,
                                                   "pending_expire_penalty":  0.01
                                               },

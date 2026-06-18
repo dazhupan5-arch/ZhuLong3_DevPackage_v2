@@ -131,16 +131,24 @@ StructureAnalyzer → Horizon(方向) → KN2(位置过滤) → ExecutionCompose
 
 | # | 缺陷 | 严重度 | 修复时机 |
 |---|------|--------|----------|
-| 1 | `location_score` 只用 M5 滚动区间，不用多周期 S/R | 高 | 新模型部署时 |
-| 2 | `entry_quality` 公式位置权重仅 45% | 高 | 新模型部署时 |
-| 3 | `structure_entry_target` pull 系数过小（0.15 ATR） | 高 | 新模型部署时 |
+| 1 | `location_score` 只用 M5 滚动区间 → **已升级为 v2 多维评分** | ✅ 已修 | 2026-06-19 |
+| 2 | `entry_quality` 公式位置权重仅 45% → **已提升至 70%（可配置）** | ✅ 已修 | 2026-06-19 |
+| 3 | `structure_entry_target` pull 系数过小（0.15 ATR）→ **已增大至 0.35 ATR** | ✅ 已修 | 2026-06-19 |
 | 4 | KN2 模型训练失败（precision 0%） | 严重 | **现在重训** |
 | 5 | Horizon F1 < 0.50，胜率 < 60% | 严重 | **现在重训** |
 | 6 | C# 层无独立结构位置控制 | 中 | 新模型部署时 |
 | 7 | `structure_location_gate` 仅对 immediate 模式生效 | 中 | 新模型部署时 |
-| 8 | RL `entry_quality_bonus=0.05` 可忽略 | 低 | RL 重训时 |
+| 8 | RL `entry_quality_bonus` 可忽略 → **已提升至 0.15** | ✅ 已修 | 2026-06-19 |
+| 9 | 入场门禁阈值过松 → **immediate 0.72→0.78, limit 0.38→0.45** | ✅ 已修 | 2026-06-19 |
 
-### 4.3 已修复（不需要 GPU 机关注）
+### 4.3 新增验收审计
+
+- **`scripts/audit_entry_location_quality.py`**：验证 location_score_v2 多维评分、pull 系数、门禁阈值、config 契约
+- **`scripts/audit_execution_parity_contract.py`**：新增 v16_strict_3 契约检查项
+- **`config/v16_acceptance.json`**：升级至 `v16_strict_3`，新增 `entry_location` 分布审计标准
+- **`config/config_agent.json`**：execution_composer 新增 `entry_quality_position_weight: 0.70`，阈值收紧
+
+### 4.4 已修复（不需要 GPU 机关注）
 
 - P0：deploy 脚本不再精简覆写 config → 改用 `Merge-V16AgentConfig.ps1`
 - P0：`AgentConfigSync` C# 同步键已含 `execution_composer`、`trading_env`、`kn2`

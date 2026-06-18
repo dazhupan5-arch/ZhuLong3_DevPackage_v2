@@ -1,7 +1,7 @@
 {
   "acceptance_stage": "v16",
-  "acceptance_contract_version": "v16_strict_2",
-  "acceptance_contract_notes": "胜率>60%；训练集与测试集 macro F1 均>0.5；禁止 train F1 高 test F1 低；禁止数据泄露与未来函数",
+  "acceptance_contract_version": "v16_strict_3",
+  "acceptance_contract_notes": "胜率>60%；训练集与测试集 macro F1 均>0.5；禁止 train F1 高 test F1 低；禁止数据泄露与未来函数；入场位置分布审计（long偏下/short偏上）",
   "min_training_rows": 670000,
   "min_val_accuracy": 0.48,
   "min_macro_f1": 0.50,
@@ -39,5 +39,14 @@
   "oos_end": "2025-12-31",
   "lockbox_march_start": "2026-03-10",
   "lockbox_march_end": "2026-03-18",
-  "lockbox_june_date": "2026-06-10"
+  "lockbox_june_date": "2026-06-10",
+  "entry_location": {
+    "min_long_entry_pos_median": 0.40,
+    "min_short_entry_pos_median": 0.60,
+    "min_entry_near_sr_pct": 0.40,
+    "max_entry_far_from_sr_pct": 0.25,
+    "min_location_score_median": 0.55,
+    "min_long_support_dist_median_atr": 0.50,
+    "min_short_resistance_dist_median_atr": 0.50
+  }
 }

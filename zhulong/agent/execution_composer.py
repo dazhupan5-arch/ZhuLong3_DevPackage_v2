@@ -1,4 +1,9 @@
-"""V16 执行合成层：Horizon + KN2 + Structure → 统一 ExecutionPlan（long/short 对称）。"""
+"""V16 执行合成层：Horizon + KN2 + Structure → 统一 ExecutionPlan（long/short 对称）。
+
+v16_strict_3（2026-06-19）：位置评分升级为多维结构评分（M5区间 + S/R距离强度 + 多周期共振），
+entry_quality 位置权重从 45% 提升至 70%，入场 pull 从 0.15→0.35 ATR，
+门禁阈值收紧（immediate≥0.78, limit≥0.45）。
+"""
 
 from __future__ import annotations
 
@@ -16,7 +21,7 @@ ENTRY_DEFER = "defer"
 
 
 def location_score(direction: str, pos_in_range: float, cfg: LocationLabelConfig | None = None) -> float:
-    """0~1：当前区间位置与训练标签一致程度（long 偏下、short 偏上）。"""
+    """（旧版兼容）0~1：当前区间位置与训练标签一致程度（long 偏下、short 偏上）。"""
     cfg = cfg or LocationLabelConfig()
     pos = float(pos_in_range)
     if direction == "long":
@@ -32,6 +37,69 @@ def location_score(direction: str, pos_in_range: float, cfg: LocationLabelConfig
     return 0.0
 
 
+def location_score_v2(
+    direction: str,
+    pos_in_range: float,
+    snap: StructureSnapshot,
+    cfg: LocationLabelConfig | None = None,
+) -> float:
+    """多维结构位置评分 0~1：
+    - M5 区间位置 40%：滚动窗口内的相对位置（long 偏下、short 偏上）
+    - S/R 距离强度 30%：距离最近支撑/阻力的 ATR 倍率 × 强度
+    - 多周期共振 30%：M5/H1/H4 trend align 与方向是否一致
+    """
+    cfg = cfg or LocationLabelConfig()
+    if direction not in ("long", "short"):
+        return 0.0
+    pos = float(pos_in_range)
+
+    # 1. M5 区间位置得分（与旧版 location_score 一致）
+    if direction == "long":
+        if pos <= cfg.pos_range_long_max:
+            range_score = 1.0
+        else:
+            span = max(1.0 - cfg.pos_range_long_max, 1e-9)
+            range_score = max(0.0, 1.0 - (pos - cfg.pos_range_long_max) / span)
+    else:
+        if pos >= cfg.pos_range_short_min:
+            range_score = 1.0
+        else:
+            span = max(cfg.pos_range_short_min, 1e-9)
+            range_score = max(0.0, pos / span)
+
+    # 2. S/R 距离 + 强度得分
+    sup_dist = float(getattr(snap, "support_dist_atr", 1.0) or 1.0)
+    res_dist = float(getattr(snap, "resistance_dist_atr", 1.0) or 1.0)
+    sup_str = 0.3
+    res_str = 0.3
+    try:
+        vec = snap.vector
+        if len(vec) > 5:
+            sup_str = float(vec[5])
+            res_str = float(vec[6])
+    except (IndexError, TypeError):
+        pass
+
+    if direction == "long":
+        dist_ok = max(0.0, 1.0 - sup_dist / max(cfg.max_support_dist, 0.01))
+        str_ok = min(1.0, sup_str / 0.5)
+        sr_score = dist_ok * str_ok
+    else:
+        dist_ok = max(0.0, 1.0 - res_dist / max(cfg.max_resistance_dist, 0.01))
+        str_ok = min(1.0, res_str / 0.5)
+        sr_score = dist_ok * str_ok
+
+    # 3. 多周期共振得分
+    mtf = float(getattr(snap, "mtf_align", 0.0) or 0.0)
+    if direction == "long":
+        mtf_score = max(0.0, min(1.0, (mtf + 1.0) / 2.0))
+    else:
+        mtf_score = max(0.0, min(1.0, (1.0 - mtf) / 2.0))
+
+    score = 0.4 * range_score + 0.3 * sr_score + 0.3 * mtf_score
+    return max(0.0, min(1.0, score))
+
+
 def structure_entry_target(
     direction: str,
     snap: StructureSnapshot,
@@ -40,12 +108,13 @@ def structure_entry_target(
     *,
     loc_score: float,
 ) -> float:
-    """结构锚定入场目标价：long 靠近 support，short 靠近 resistance。"""
+    """结构锚定入场目标价：long 靠近 support，short 靠近 resistance。
+    pull 系数 0.35 ATR（v16_strict_3），位置越差限价挂得越远。"""
     if close <= 0 or atr <= 0:
         return close
     sup = close - float(snap.support_dist_atr) * atr
     res = close + float(snap.resistance_dist_atr) * atr
-    pull = 0.15 * atr * max(0.35, 1.0 - loc_score)
+    pull = 0.35 * atr * max(0.35, 1.0 - loc_score)
 
     if direction == "long":
         if sup > 0 and sup < close:
@@ -67,20 +136,21 @@ def decide_entry_mode(
     loc_score: float,
     entry_quality: float,
     *,
-    immediate_quality_min: float = 0.72,
-    limit_quality_min: float = 0.38,
+    immediate_quality_min: float = 0.78,
+    limit_quality_min: float = 0.45,
 ) -> str:
-    """根据位置与综合质量决定 immediate / limit / defer。"""
+    """根据位置与综合质量决定 immediate / limit / defer。
+    门槛 v16_strict_3：immediate≥0.78, limit≥0.45。"""
     if direction not in ("long", "short"):
         return ENTRY_DEFER
-    if loc_score >= 0.88 and entry_quality >= immediate_quality_min:
+    if loc_score >= 0.85 and entry_quality >= immediate_quality_min:
         return ENTRY_IMMEDIATE
-    if entry_quality >= limit_quality_min or loc_score >= 0.45:
+    if entry_quality >= limit_quality_min or loc_score >= 0.50:
         if direction == "long" and entry_target < close - 1e-9:
             return ENTRY_LIMIT
         if direction == "short" and entry_target > close + 1e-9:
             return ENTRY_LIMIT
-        if loc_score >= 0.75:
+        if loc_score >= 0.78:
             return ENTRY_IMMEDIATE
         return ENTRY_LIMIT
     return ENTRY_DEFER
@@ -195,7 +265,8 @@ def limit_fill_on_bar(
 
 
 class ExecutionComposer:
-    """融合 Horizon + KN2 + Structure，产出与训练标签同构的执行计划。"""
+    """融合 Horizon + KN2 + Structure，产出与训练标签同构的执行计划。
+    v16_strict_3：位置评分多维化 + 权重提升 + pull 增大 + 门禁收紧。"""
 
     def __init__(self, config: dict[str, Any] | None = None) -> None:
         cfg = config or {}
@@ -215,8 +286,9 @@ class ExecutionComposer:
         self.kn2_min_confidence = float(kn2.get("min_confidence", 0.48))
         self.kn2_enabled = bool(kn2.get("enabled", False))
         self.valid_bars = int(ec.get("valid_bars", tm.get("valid_bars", 48)))
-        self.immediate_quality_min = float(ec.get("immediate_quality_min", 0.72))
-        self.limit_quality_min = float(ec.get("limit_quality_min", 0.38))
+        self.immediate_quality_min = float(ec.get("immediate_quality_min", 0.78))
+        self.limit_quality_min = float(ec.get("limit_quality_min", 0.45))
+        self.entry_quality_position_weight = float(ec.get("entry_quality_position_weight", 0.70))
         self.loc_cfg = LocationLabelConfig()
 
     def compose(
@@ -252,7 +324,7 @@ class ExecutionComposer:
             plan.block_reason = "consecutive_losses"
             return plan
 
-        loc = location_score(direction, pos_in_range, self.loc_cfg)
+        loc = location_score_v2(direction, pos_in_range, snapshot, self.loc_cfg)
         kn2_conf = float(kn2_dec.get("confidence", 0)) if kn2_dec else 0.0
         kn2_trade = bool(kn2_dec.get("should_trade")) if kn2_dec else True
 
@@ -268,7 +340,8 @@ class ExecutionComposer:
         kn2_factor = kn2_conf if kn2_dec and self.kn2_enabled and not horizon_flat else 1.0
         if kn2_factor <= 0:
             kn2_factor = 1.0
-        entry_quality = float(forecast.confidence) * kn2_factor * (0.55 + 0.45 * loc)
+        pw = max(0.25, min(0.85, self.entry_quality_position_weight))
+        entry_quality = float(forecast.confidence) * kn2_factor * ((1.0 - pw) + pw * loc)
 
         entry_target = structure_entry_target(
             direction, snapshot, close, atr, loc_score=loc

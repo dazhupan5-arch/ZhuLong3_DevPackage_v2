@@ -44,6 +44,7 @@ from zhulong.agent.state_builder import (
 from zhulong.agent.execution_composer import (
     limit_fill_on_bar,
     location_score,
+    location_score_v2,
     structure_entry_target,
 )
 from zhulong.agent.kn2_location_labels import LocationLabelConfig, compute_pos_in_range
@@ -283,7 +284,7 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
 
         ep_cfg = self.config.get("execution_parity") or {}
         self.execution_parity = bool(ep_cfg.get("enabled", False))
-        self.entry_quality_bonus = float(ep_cfg.get("entry_quality_bonus", 0.05))
+        self.entry_quality_bonus = float(ep_cfg.get("entry_quality_bonus", 0.15))
         self.pending_expire_bars = int(ep_cfg.get("pending_expire_bars", 48))
         self.pending_expire_penalty = float(ep_cfg.get("pending_expire_penalty", 0.01))
         self._loc_cfg = LocationLabelConfig()
@@ -623,8 +624,9 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
         pos_arr = compute_pos_in_range(closes.astype(np.float32))
         return float(pos_arr[-1])
 
-    def _entry_quality_reward(self, direction: str, pos: float) -> float:
-        loc = location_score(direction, pos, self._loc_cfg)
+    def _entry_quality_reward(self, direction: str, snap: StructureSnapshot) -> float:
+        pos = self._pos_in_range_at(self.current_step)
+        loc = location_score_v2(direction, pos, snap, self._loc_cfg)
         return self.entry_quality_bonus * loc
 
     def _clear_pending(self) -> None:
@@ -656,9 +658,9 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
     def _fill_pending_at(self, fill: float, idx: int) -> float:
         target_size = float(self.pending_size or (1.0 if self.pending_direction > 0 else -1.0))
         direction = "long" if target_size > 0 else "short"
-        pos = self._pos_in_range_at(idx)
+        snap = self._struct_snapshot_at(idx)
         reward = self._open_position_at(fill, target_size, idx)
-        reward += self._entry_quality_reward(direction, pos)
+        reward += self._entry_quality_reward(direction, snap)
         self._clear_pending()
         return reward
 
@@ -748,7 +750,7 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
             direction = "long" if target > 0 else "short"
             snap = self._struct_snapshot_at(self.current_step)
             pos = self._pos_in_range_at(self.current_step)
-            loc = location_score(direction, pos, self._loc_cfg)
+            loc = location_score_v2(direction, pos, snap, self._loc_cfg)
             entry_target = structure_entry_target(
                 direction, snap, price, atr, loc_score=loc
             )
@@ -757,7 +759,7 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
             fill_px = limit_fill_on_bar(direction, entry_target, high, low, price)
             if fill_px is not None:
                 reward += self._open_position_at(fill_px, target, self.current_step)
-                reward += self._entry_quality_reward(direction, pos)
+                reward += self._entry_quality_reward(direction, snap)
                 return reward
             self.pending_direction = 1 if target > 0 else -1
             self.pending_target = entry_target

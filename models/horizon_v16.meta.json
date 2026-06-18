@@ -50,5 +50,6 @@
     "oos_win_rate": 0.5881,
     "oos_n_trades": 1850
   },
-  "macro_f1_raw_argmax": 0.4327826654960911
+  "macro_f1_raw_argmax": 0.4327826654960911,
+  "temporal_val": true
 }
