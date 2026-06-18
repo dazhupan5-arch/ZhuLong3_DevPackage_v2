@@ -126,10 +126,10 @@ if (-not $SkipHorizon) {
         --no-benchmark
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-    Write-Step "Horizon 验收（F1>0.5, long/short P/R>=80%）"
-    py -3 scripts/accept_horizon_v16.py --apply
+    Write-Step "Horizon 门禁（分类 F1>0.5, long/short P/R>=80%，不含 RL）"
+    py -3 scripts/accept_horizon_v16.py --horizon-only
     if ($LASTEXITCODE -ne 0) {
-        Write-Host "Horizon 验收不合格 exit=$LASTEXITCODE" -ForegroundColor Red
+        Write-Host "Horizon 分类验收不合格 exit=$LASTEXITCODE" -ForegroundColor Red
         exit $LASTEXITCODE
     }
 }
@@ -185,10 +185,24 @@ if (-not $SkipRl) {
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 }
 
-Write-Step "契约审计（训练后）"
+Write-Step "全栈验收（Horizon+OOS+RL+Agent，通过后写入 meta/config）"
+py -3 scripts/accept_horizon_v16.py --apply
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "全栈验收不合格 exit=$LASTEXITCODE" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+Write-Step "契约审计（训练后，未通过则中断）"
 py -3 scripts/audit_training_no_leak.py
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "WARN:  post audit 未全绿，请检查 meta/NPZ" -ForegroundColor Yellow
+    Write-Host "契约审计未通过 exit=$LASTEXITCODE" -ForegroundColor Red
+    exit $LASTEXITCODE
+}
+
+Write-Step "部署门禁（开发机拷回模型后须再跑）"
+py -3 scripts/pre_deploy_v16_gate.py --require-kn2-live
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "部署门禁未通过（KN2 LIVE 需 acceptance_report）" -ForegroundColor Yellow
 }
 
 Write-Step "完成 — 部署清单"

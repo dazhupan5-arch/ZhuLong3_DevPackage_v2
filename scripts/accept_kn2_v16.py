@@ -146,10 +146,17 @@ def main() -> int:
         },
         index=times[:n],
     )
-    val_mask = np.asarray(df.index.year == int(acc_cfg.get("val_year", VAL_YEAR_DEFAULT)), dtype=bool)
-    if val_mask.sum() < 1000:
-        val_mask = np.zeros(n, dtype=bool)
-        val_mask[int(n * 0.85) :] = True
+    _, val_mask = temporal_train_val_masks(
+        times[:n],
+        val_year=int(acc_cfg.get("val_year", VAL_YEAR_DEFAULT)),
+    )
+    val_mask = np.asarray(val_mask, dtype=bool)
+    if int(val_mask.sum()) < 1000:
+        report["failures"].append(
+            f"val_year_{acc_cfg.get('val_year', VAL_YEAR_DEFAULT)}_sample_too_small_{int(val_mask.sum())}"
+        )
+        print(json.dumps(report, indent=2))
+        return 2
 
     print(f"Loading labels for validation ({val_mask.sum():,} bars, mode={args.label_mode})...", flush=True)
     t0 = time.perf_counter()

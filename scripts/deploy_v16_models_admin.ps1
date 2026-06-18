@@ -21,6 +21,8 @@ $modelFiles = @(
     "models\horizon_v16_scaler.pkl",
     "models\horizon_v16.meta.json",
     "models\horizon_v16.pth",
+    "models\kn2_trader_v16.pth",
+    "models\kn2_trader_v16.meta.json",
     "models\rl_agent_xau.zip",
     "models\XAUUSD\v16\rl_meta.json",
     "data\agent_state_scaler_xauusd.json"
@@ -44,6 +46,10 @@ $pyPatches = @(
     @{ Src = "zhulong\agent\tick_brief.py"; Dst = "zhulong\agent\tick_brief.py" },
     @{ Src = "zhulong\agent\structure_service.py"; Dst = "zhulong\agent\structure_service.py" },
     @{ Src = "zhulong\agent\trader_mind.py"; Dst = "zhulong\agent\trader_mind.py" },
+    @{ Src = "zhulong\agent\execution_composer.py"; Dst = "zhulong\agent\execution_composer.py" },
+    @{ Src = "zhulong\agent\kn2_location_labels.py"; Dst = "zhulong\agent\kn2_location_labels.py" },
+    @{ Src = "zhulong\agent\knowledge_net_kn2.py"; Dst = "zhulong\agent\knowledge_net_kn2.py" },
+    @{ Src = "zhulong\agent\knowledge_net.py"; Dst = "zhulong\agent\knowledge_net.py" },
     @{ Src = "zhulong\agent\cognition.py"; Dst = "zhulong\agent\cognition.py" },
     @{ Src = "zhulong\utils\paths.py"; Dst = "zhulong\utils\paths.py" },
     @{ Src = "ZhuLong.PythonEngine\inference_cli.py"; Dst = "ZhuLong.PythonEngine\inference_cli.py" }
@@ -52,11 +58,26 @@ $pyPatches = @(
 foreach ($p in $pyPatches) {
     $src = Join-Path $DevRoot $p.Src
     if (-not (Test-Path $src)) { Write-Warning "skip patch $($p.Src)"; continue }
-    $dst = Join-Path $InstallDir $p.Dst
-    $dir = Split-Path $dst -Parent
-    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
-    Copy-Item -Force $src $dst
-    Write-Host "  PATCH $($p.Dst)"
+    foreach ($base in @($appData, $InstallDir)) {
+        $dst = Join-Path $base $p.Dst
+        $dir = Split-Path $dst -Parent
+        if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+        try {
+            Copy-Item -Force $src $dst -ErrorAction Stop
+            Write-Host "  OK $($p.Dst)" -ForegroundColor $(if ($base -eq $appData) { "Yellow" } else { "Green" })
+        } catch {
+            if ($base -eq $InstallDir) { Write-Warning "  skip InstallDir $($p.Dst)" }
+        }
+    }
+}
+
+$cliSrc = Join-Path $DevRoot "ZhuLong.PythonEngine\inference_cli.py"
+if (Test-Path $cliSrc) {
+    $cliDst = Join-Path $appData "ZhuLong.PythonEngine\inference_cli.py"
+    $cliDir = Split-Path $cliDst -Parent
+    if (-not (Test-Path $cliDir)) { New-Item -ItemType Directory -Force -Path $cliDir | Out-Null }
+    Copy-Item -Force $cliSrc $cliDst
+    Write-Host "  OK AppData ZhuLong.PythonEngine\inference_cli.py" -ForegroundColor Yellow
 }
 
 Write-Host "`nDone. Restart ZhuLong.exe" -ForegroundColor Green

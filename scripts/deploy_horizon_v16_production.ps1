@@ -1,0 +1,175 @@
+# 部署 Horizon V16（flat_boost + 校准）到实机；KN2 保持关闭，待 GPU 验收后再开
+param(
+    [string]$InstallDir = "C:\Program Files\ZhuLong"
+)
+
+$ErrorActionPreference = "Stop"
+Set-Location $PSScriptRoot\..
+
+$appData = Join-Path $env:APPDATA "ZhuLong"
+New-Item -ItemType Directory -Force -Path $appData | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $appData "models\XAUUSD\v16") | Out-Null
+
+$devRoot = Get-Location
+$metaPath = Join-Path $devRoot "models\horizon_v16.meta.json"
+if (-not (Test-Path $metaPath)) { throw "Missing models\horizon_v16.meta.json — train + accept first" }
+Write-Host "=== Pre-deploy gate ===" -ForegroundColor Cyan
+py -3 scripts/pre_deploy_v16_gate.py
+if ($LASTEXITCODE -ne 0) { throw "pre_deploy_v16_gate FAILED — 禁止部署未验收模型" }
+
+$meta = Get-Content $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json
+$cal = $meta.calibration
+$minConf = if ($cal.min_confidence) { [double]$cal.min_confidence } else { 0.48 }
+
+Write-Host "=== Deploy Horizon V16 (flat_boost + calibration) ===" -ForegroundColor Cyan
+Write-Host "macro_f1=$($meta.macro_f1) trial=$($meta.trial) min_conf=$minConf"
+
+$modelFiles = @(
+    "models\horizon_v16.onnx",
+    "models\horizon_v16_scaler.pkl",
+    "models\horizon_v16.meta.json",
+    "models\horizon_v16.pth",
+    "models\rl_agent_xau.zip",
+    "models\XAUUSD\v16\rl_meta.json",
+    "data\agent_state_scaler_xauusd.json"
+)
+
+foreach ($rel in $modelFiles) {
+    $src = Join-Path $devRoot $rel
+    if (-not (Test-Path $src)) { Write-Warning "skip missing $rel"; continue }
+    $dst = Join-Path $appData $rel
+    $dir = Split-Path $dst -Parent
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+    Copy-Item -Force $src $dst
+    Write-Host "AppData OK $rel"
+}
+
+$pyPatches = @(
+    "zhulong\agent\horizon_predictor.py",
+    "zhulong\agent\trading_agent.py",
+    "zhulong\agent\execution_composer.py",
+    "zhulong\agent\structure_service.py",
+    "zhulong\agent\tick_brief.py"
+)
+
+$cfgPath = Join-Path $appData "config_agent.json"
+$existing = @{}
+if (Test-Path $cfgPath) {
+    $existing = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
+}
+
+$agentCfg = @{
+    enabled = $true
+    use_rl = $true
+    primary_symbol = "XAUUSD"
+    signal_expiry_minutes = 240
+    state_file = "data/agent_state.json"
+    fallback_strategy = "none"
+    architecture = @{
+        version = "v16"
+        horizon_predictor = @{
+            horizon_bars = 12
+            gain_threshold = 0.002
+            min_direction_confidence = $minConf
+            model_path = "models/horizon_v16.onnx"
+            scaler_path = "models/horizon_v16_scaler.pkl"
+            model_id = "horizon_v16"
+        }
+    }
+    trader_mind = @{
+        max_consecutive_losses = 6
+        sl_atr_mult = 1.2
+        tp_atr_mult = 2.0
+        ranging_sl_atr_mult = 1.8
+        choppy_sl_atr_mult = 2.0
+        min_confidence = $minConf
+    }
+    execution_gates = @{
+        structure_location_gate = $true
+        block_ranging_conflict = $true
+        horizon_lock_direction = $false
+    }
+    kn2 = @{
+        enabled = $false
+        shadow_mode = $true
+        model_path = "models/kn2_trader_v16.pth"
+        min_confidence = 0.48
+    }
+    cognition = @{
+        enabled = $true
+        symbol = "XAUUSD"
+        direction_threshold = $minConf
+        base_confidence_threshold = 0.48
+    }
+    rl_inference = @{
+        action_threshold = 0.52
+        min_confidence_for_trade = 0.52
+        max_daily_trades = 5
+    }
+    knowledge_net = @{
+        model_path = "models/horizon_v16.onnx"
+        scaler_path = "models/horizon_v16_scaler.pkl"
+    }
+    rl = @{
+        model_path_xau = "models/rl_agent_xau"
+    }
+    symbols = @{
+        XAUUSD = @{
+            enabled = $true
+            broker_symbol = "XAUUSD"
+            state_scaler_path = "data/agent_state_scaler_xauusd.json"
+            state_file = "data/agent_state_xauusd.json"
+            rl = @{ model_path = "models/rl_agent_xau" }
+        }
+    }
+}
+
+$json = $agentCfg | ConvertTo-Json -Depth 8
+[System.IO.File]::WriteAllText($cfgPath, $json, [System.Text.UTF8Encoding]::new($false))
+Write-Host "Wrote $cfgPath (kn2.enabled=false, shadow_mode=true)"
+
+$deployMeta = @{
+    deployed_at = (Get-Date).ToUniversalTime().ToString("o")
+    tag = "horizon_v16_flat_boost_calibrated"
+    trial = $meta.trial
+    macro_f1 = $meta.macro_f1
+    calibration = $cal
+    kn2_status = "awaiting_gpu_acceptance"
+}
+$deployMeta | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $appData "models\XAUUSD\v16\deploy_status.json") -Encoding utf8
+
+if (Test-Path $InstallDir) {
+    $canInstall = $true
+    try {
+        $testDir = Join-Path $InstallDir "models\_write_test"
+        New-Item -ItemType Directory -Force -Path $testDir -ErrorAction Stop | Out-Null
+        Remove-Item -Recurse -Force $testDir -ErrorAction SilentlyContinue
+    } catch {
+        $canInstall = $false
+        Write-Warning "No write access to $InstallDir — run deploy_v16_models_admin.ps1 as Admin for Program Files"
+    }
+    if ($canInstall) {
+        foreach ($rel in $modelFiles) {
+            $src = Join-Path $appData $rel
+            if (-not (Test-Path $src)) { continue }
+            $dst = Join-Path $InstallDir $rel
+            $dir = Split-Path $dst -Parent
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+            Copy-Item -Force $src $dst
+            Write-Host "Install OK $rel"
+        }
+        foreach ($rel in $pyPatches) {
+            $src = Join-Path $devRoot $rel
+            if (-not (Test-Path $src)) { continue }
+            $dst = Join-Path $InstallDir $rel
+            $dir = Split-Path $dst -Parent
+            if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
+            Copy-Item -Force $src $dst
+            Write-Host "PATCH $rel"
+        }
+    }
+}
+
+Write-Host "`nHorizon V16 deployed to production (AppData)." -ForegroundColor Green
+Write-Host "Restart ZhuLong.exe to load."
+Write-Host "KN2: disabled — enable after GPU accept_kn2_v16.py passes."

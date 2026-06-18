@@ -8,6 +8,7 @@ import importlib.util
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
@@ -440,6 +441,15 @@ def _apply_passed(root: Path, cfg: dict, report: dict) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--apply", action="store_true", help="验收通过后写入 config/meta")
+    parser.add_argument(
+        "--horizon-only",
+        action="store_true",
+        help="仅 Horizon 分类+ONNX（KN2/RL 训练前门禁，不含 RL/OOS/lockbox）",
+    )
+    parser.add_argument("--skip-oos", action="store_true")
+    parser.add_argument("--skip-lockbox", action="store_true")
+    parser.add_argument("--skip-agent", action="store_true")
+    parser.add_argument("--skip-rl", action="store_true")
     args = parser.parse_args()
 
     root = _ROOT
@@ -448,28 +458,46 @@ def main() -> int:
     failures: list[str] = []
     sections: dict = {}
 
-    for name, fn in (
+    core_checks = (
         ("training", lambda: _check_training(root, acc)),
         ("val_classification", lambda: _check_val_classification(root, acc)),
         ("onnx", lambda: _check_onnx(root, cfg, acc)),
+    )
+    extended_checks = (
         ("oos", lambda: _check_oos(root, cfg, acc)),
         ("lockbox_march", lambda: _lockbox_march(root, cfg, acc)),
         ("lockbox_june", lambda: _lockbox_june(root, cfg, acc)),
         ("agent", lambda: _check_agent(root, cfg, acc)),
         ("rl_coherence", lambda: _check_rl_direction_coherence(root, cfg, acc)),
-    ):
+    )
+
+    checks: list[tuple[str, Any]] = list(core_checks)
+    if not args.horizon_only:
+        for name, fn in extended_checks:
+            if name == "oos" and args.skip_oos:
+                continue
+            if name.startswith("lockbox") and args.skip_lockbox:
+                continue
+            if name == "agent" and args.skip_agent:
+                continue
+            if name == "rl_coherence" and args.skip_rl:
+                continue
+            checks.append((name, fn))
+
+    for name, fn in checks:
         print(f"=== {name} ===", flush=True)
         ok, detail, fails = fn()
         sections[name] = {"ok": ok, "detail": detail, "failures": fails}
         failures.extend(fails)
         print(json.dumps(sections[name], indent=2, default=str), flush=True)
 
-    print("=== rl_model ===", flush=True)
-    oos_detail = sections.get("oos", {}).get("detail") or {}
-    ok, detail, fails = _check_rl(root, acc, oos_detail=oos_detail)
-    sections["rl_model"] = {"ok": ok, "detail": detail, "failures": fails}
-    failures.extend(fails)
-    print(json.dumps(sections["rl_model"], indent=2, default=str), flush=True)
+    if not args.horizon_only and not args.skip_rl:
+        print("=== rl_model ===", flush=True)
+        oos_detail = sections.get("oos", {}).get("detail") or {}
+        ok, detail, fails = _check_rl(root, acc, oos_detail=oos_detail)
+        sections["rl_model"] = {"ok": ok, "detail": detail, "failures": fails}
+        failures.extend(fails)
+        print(json.dumps(sections["rl_model"], indent=2, default=str), flush=True)
 
     passed = len(failures) == 0
     report = {

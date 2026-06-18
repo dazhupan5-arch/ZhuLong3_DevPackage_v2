@@ -15,9 +15,15 @@ Write-Host "=== Deploy V16 execution gates + structure location filter ===" -For
 $pyFiles = @(
     "zhulong\agent\trading_agent.py",
     "zhulong\agent\trader_mind.py",
+    "zhulong\agent\execution_composer.py",
     "zhulong\agent\kn2_location_labels.py",
     "zhulong\agent\horizon_predictor.py",
-    "zhulong\agent\knowledge_net.py"
+    "zhulong\agent\knowledge_net.py",
+    "zhulong\agent\knowledge_net_kn2.py",
+    "zhulong\agent\tick_brief.py",
+    "zhulong\agent\cognition.py",
+    "zhulong\agent\structure_service.py",
+    "zhulong\engine\agent_engine.py"
 )
 
 foreach ($rel in $pyFiles) {
@@ -42,14 +48,36 @@ foreach ($rel in $pyFiles) {
     Write-Host "OK $rel"
 }
 
+# inference_cli → AppData（子进程勿从 Program Files 路径启动，易挂起/超时）
+$cliRel = "ZhuLong.PythonEngine\inference_cli.py"
+$cliSrc = Join-Path $devRoot $cliRel
+if (Test-Path $cliSrc) {
+    $cliDst = Join-Path $appData $cliRel
+    $cliDir = Split-Path $cliDst -Parent
+    if (-not (Test-Path $cliDir)) { New-Item -ItemType Directory -Force -Path $cliDir | Out-Null }
+    Copy-Item -Force $cliSrc $cliDst
+    Write-Host "OK $cliRel (AppData hotfix for subprocess)"
+}
+
 $cfgPath = Join-Path $appData "config_agent.json"
 $cfgSrc = Join-Path $devRoot "config\config_agent.json"
 if (Test-Path $cfgSrc) {
     $newCfg = Get-Content $cfgSrc -Raw -Encoding UTF8 | ConvertFrom-Json
     if (Test-Path $cfgPath) {
         $old = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        foreach ($prop in @("execution_gates", "kn2", "trader_mind", "rl_inference", "architecture")) {
+        foreach ($prop in @("execution_gates", "trader_mind", "rl_inference", "architecture")) {
             if ($newCfg.$prop) { $old | Add-Member -NotePropertyName $prop -NotePropertyValue $newCfg.$prop -Force }
+        }
+        # 保留已部署的 KN2 live/shadow 开关（勿被模板 config 覆盖）
+        if ($old.kn2 -and $newCfg.kn2) {
+            $kn2Live = [bool]$old.kn2.enabled
+            $old.kn2 = $newCfg.kn2
+            if ($kn2Live) {
+                $old.kn2.enabled = $true
+                $old.kn2.shadow_mode = $false
+            }
+        } elseif ($newCfg.kn2) {
+            $old | Add-Member -NotePropertyName kn2 -NotePropertyValue $newCfg.kn2 -Force
         }
         $old | ConvertTo-Json -Depth 20 | Set-Content $cfgPath -Encoding UTF8
         Write-Host "Merged config_agent.json → AppData"

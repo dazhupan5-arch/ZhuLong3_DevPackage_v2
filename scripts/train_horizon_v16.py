@@ -150,7 +150,8 @@ def main() -> int:
         "retrain_tag": args.log_suffix or None,
         "label_mode": args.label_mode,
         "label_version": label_version,
-        "passed": bool(stats.get("macro_f1", 0) >= MIN_MACRO_F1),
+        "passed": False,
+        "train_gate_f1_ok": bool(stats.get("macro_f1", 0) > MIN_MACRO_F1),
     }
     out_model.with_suffix(".meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 

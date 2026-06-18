@@ -131,11 +131,33 @@ def audit_npz_splits(root: Path, train_end: str, val_year: int) -> None:
         chk(f"npz val year {p.name}", int(val_m.sum()) > 500, f"val_bars={int(val_m.sum())}")
 
 
+def audit_acceptance_reports(root: Path) -> None:
+    hz_report = root / "data" / "training" / "reports" / "v16" / "acceptance_report.json"
+    if hz_report.is_file():
+        rep = _read_meta(hz_report)
+        chk("horizon acceptance_report passed", rep.get("passed") is True)
+        sections = rep.get("sections") or {}
+        val_cls = sections.get("val_classification") or {}
+        chk("horizon val_classification ok", val_cls.get("ok") is True)
+    else:
+        chk("horizon acceptance_report", False, "missing")
+
+    kn2_report = root / "data" / "training" / "reports" / "kn2_v16" / "acceptance_report.json"
+    if kn2_report.is_file():
+        rep = _read_meta(kn2_report)
+        chk("kn2 acceptance_report passed", rep.get("passed") is True)
+    else:
+        chk("kn2 acceptance_report", False, "missing (run accept_kn2_v16.py)")
+
+
 def audit_code_guards(root: Path) -> None:
     th = (root / "scripts" / "train_horizon_v16.py").read_text(encoding="utf-8")
     chk("train_horizon forbids no-temporal-val", "no-temporal-val 已禁用" in th)
     kn = (root / "scripts" / "train_kn2_v16.py").read_text(encoding="utf-8")
     chk("train_kn2 temporal_train_val_masks", "temporal_train_val_masks" in kn)
+    ak = (root / "scripts" / "accept_kn2_v16.py").read_text(encoding="utf-8")
+    chk("accept_kn2 no random val fallback", "int(n * 0.85)" not in ak)
+    chk("accept_kn2 temporal_train_val_masks", "temporal_train_val_masks" in ak)
     tu = (root / "zhulong" / "agent" / "training_utils.py").read_text(encoding="utf-8")
     chk("clean_m5 causal bad_tick", "bad_tick_revert_causal" in tu)
     chk("no forward shift(-1) bad_tick", "shift(-1)" not in tu.split("bad_tick")[1][:400] if "bad_tick" in tu else False)
@@ -169,6 +191,8 @@ def main() -> int:
         audit_rl(root, args.train_through_year)
         print("\n--- npz temporal splits ---")
         audit_npz_splits(root, args.train_end, args.val_year)
+        print("\n--- acceptance reports ---")
+        audit_acceptance_reports(root)
 
     passed = sum(1 for _, ok, _ in CHECKS if ok)
     total = len(CHECKS)
