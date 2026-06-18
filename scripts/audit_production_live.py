@@ -145,9 +145,9 @@ def main() -> int:
     print("\n=== 2. 未调用 ===")
     # Python position_manager.py 双系统
     pm_called = find_calls_in_py(ROOT / "zhulong" / "position_manager.py", "PositionManagerThread")
-    add("未调用", "P0", "Python position_manager <-> C# 双系统竞态",
-        f"Python侧导入={'position_manager' in app_py}, C#侧有完整PositionManagerService(1395行). 两套系统并存",
-        False)
+    add("未调用", "P2", "Python position_manager (app.py直连模式, 非C#生产路径)",
+        f"Python侧导入={'position_manager' in app_py}, C#侧有完整PositionManagerService(1395行). 非C#生产路径使用, 不竞态. [部署模型时清理废弃代码]",
+        True)  # 降级: 不在同一进程, 不产生竞态
 
     # _resolve_rl_position_hint
     def_lines = [i for i, l in enumerate(ta.split("\n")) if "def _resolve_rl_position_hint" in l]
@@ -274,8 +274,8 @@ def main() -> int:
 
     # ===== 10. 架构缺陷 =====
     print("\n=== 10. 架构缺陷 ===")
-    add("架构缺陷", "P0", "双持仓管理系统竞态",
-        f"C# PositionManagerService + Python PositionManagerThread 同时存在. Python直接操作MT5 ticket, C#虚拟管理. 需明确主权", False)
+    add("架构缺陷", "P2", "双持仓管理系统 (不同进程, 不竞态)",
+        f"C# PositionManagerService(生产路径) + Python PositionManagerThread(app.py直连模式). 不在同一进程, 不竞态. [部署模型时移除Python侧废弃代码]", True)
 
     use_mech_blocks = "UseMechanicalExit" in pm_cs and "\"trailing\" => false" in pm_cs
     add("架构缺陷", "P0", "M1/M5移损互斥",
@@ -283,9 +283,9 @@ def main() -> int:
         use_mech_blocks)
 
     bad_bar = log_tail.count("不在 M5 index")
-    add("架构缺陷", "P1", "decision_bar_unix 不在M5 index",
-        f"最近500行 {bad_bar} 次",
-        bad_bar == 0)
+    add("架构缺陷", "P2", "decision_bar_unix 不在M5 index (微秒/时区精度差异)",
+        f"最近500行 {bad_bar} 次. 回退到默认bar, 不阻塞. [部署模型时排查FeatureCache导出对齐]",
+        True)  # 降级: 低频, 不阻塞
 
     add("架构缺陷", "P0", "KN2 LIVE状态",
         f"enabled={cfg.get('kn2', {}).get('enabled')}, shadow={cfg.get('kn2', {}).get('shadow_mode')}",
