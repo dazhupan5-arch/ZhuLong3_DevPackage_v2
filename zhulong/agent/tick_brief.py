@@ -34,11 +34,20 @@ class HorizonForecast:
 
 @dataclass
 class ExecutionPlan:
+    """V16 统一执行契约：方向 + 入场模式 + 结构锚定价 + SL/TP。"""
+
     direction: str = "flat"
     action: str = "hold"
+    entry_mode: str = "immediate"  # immediate | limit | defer
+    entry_target: float = 0.0
+    entry_quality: float = 0.0
     size_mult: float = 1.0
     sl_price: float = 0.0
     tp_price: float = 0.0
     sl_reason: str = ""
     block_reason: str = ""
     should_trade: bool = False
+    valid_bars: int = 48
+    source: str = "composer"
+    pos_in_range: float = 0.5
+    metadata: dict = field(default_factory=dict)

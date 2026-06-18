@@ -41,6 +41,13 @@ from zhulong.agent.state_builder import (
     primary_direction_from_probs,
 )
 
+from zhulong.agent.execution_composer import (
+    limit_fill_on_bar,
+    location_score,
+    structure_entry_target,
+)
+from zhulong.agent.kn2_location_labels import LocationLabelConfig, compute_pos_in_range
+from zhulong.agent.tick_brief import StructureSnapshot
 from zhulong.agent.trader_memory import TraderMemory
 
 from zhulong.strategies.indicators import atr_series
@@ -274,6 +281,18 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
 
         self.total_env_steps = 0
 
+        ep_cfg = self.config.get("execution_parity") or {}
+        self.execution_parity = bool(ep_cfg.get("enabled", False))
+        self.entry_quality_bonus = float(ep_cfg.get("entry_quality_bonus", 0.05))
+        self.pending_expire_bars = int(ep_cfg.get("pending_expire_bars", 48))
+        self.pending_expire_penalty = float(ep_cfg.get("pending_expire_penalty", 0.01))
+        self._loc_cfg = LocationLabelConfig()
+        self.pending_direction = 0
+        self.pending_target = 0.0
+        self.pending_size = 0.0
+        self.pending_expire_step = 0
+        self.signal_bar_close = 0.0
+
 
 
     def reset(self, *, seed: int | None = None, options: dict | None = None):
@@ -324,6 +343,12 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
 
         self.total_env_steps = 0
 
+        self.pending_direction = 0
+        self.pending_target = 0.0
+        self.pending_size = 0.0
+        self.pending_expire_step = 0
+        self.signal_bar_close = 0.0
+
         self.memory = TraderMemory(self.memory.max_len)
 
         return self._get_state(), {}
@@ -358,6 +383,10 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
             self._hold_exogenous_sum += float(self.exogenous[min(self.current_step, len(self.exogenous) - 1)])
 
 
+
+        close_reward = self._advance_pending_entry()
+
+        reward += close_reward
 
         close_reward = self._execute_action(int(action))
 
@@ -577,6 +606,92 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
 
 
 
+    def _struct_snapshot_at(self, idx: int) -> StructureSnapshot:
+        row = np.asarray(self.struct[idx], dtype=np.float32).reshape(-1)
+        return StructureSnapshot(
+            vector=row.tolist(),
+            m5_trend=float(row[0]) if row.size > 0 else 0.0,
+            support_dist_atr=float(row[3]) if row.size > 3 else 0.0,
+            resistance_dist_atr=float(row[4]) if row.size > 4 else 0.0,
+        )
+
+    def _pos_in_range_at(self, idx: int) -> float:
+        start = max(0, idx - 11)
+        closes = self.data["close"].iloc[start : idx + 1].values.astype(np.float64)
+        if len(closes) < 2:
+            return 0.5
+        pos_arr = compute_pos_in_range(closes.astype(np.float32))
+        return float(pos_arr[-1])
+
+    def _entry_quality_reward(self, direction: str, pos: float) -> float:
+        loc = location_score(direction, pos, self._loc_cfg)
+        return self.entry_quality_bonus * loc
+
+    def _clear_pending(self) -> None:
+        self.pending_direction = 0
+        self.pending_target = 0.0
+        self.pending_size = 0.0
+        self.pending_expire_step = 0
+        self.signal_bar_close = 0.0
+
+    def _advance_pending_entry(self) -> float:
+        if not self.execution_parity or self.position != 0 or self.pending_direction == 0:
+            return 0.0
+        idx = self.current_step
+        if idx >= len(self.data):
+            return 0.0
+        reward = 0.0
+        direction = "long" if self.pending_direction > 0 else "short"
+        high = float(self.data["high"].iloc[idx])
+        low = float(self.data["low"].iloc[idx])
+        close = float(self.data["close"].iloc[idx])
+        fill = limit_fill_on_bar(direction, self.pending_target, high, low, close)
+        if fill is not None:
+            reward += self._fill_pending_at(fill, idx)
+        elif idx >= self.pending_expire_step:
+            reward -= self.pending_expire_penalty
+            self._clear_pending()
+        return reward
+
+    def _fill_pending_at(self, fill: float, idx: int) -> float:
+        target_size = float(self.pending_size or (1.0 if self.pending_direction > 0 else -1.0))
+        direction = "long" if target_size > 0 else "short"
+        pos = self._pos_in_range_at(idx)
+        reward = self._open_position_at(fill, target_size, idx)
+        reward += self._entry_quality_reward(direction, pos)
+        self._clear_pending()
+        return reward
+
+    def _open_position_at(self, fill: float, target: float, idx: int) -> float:
+        atr = float(self.data["atr"].iloc[idx])
+        cost = self._cost(fill)
+        fill = fill + cost * (1 if target > 0 else -1)
+        was_flat = self.position == 0
+        self.position = target
+        self.entry_price = fill
+        self.entry_step = idx
+        self.trajectory = []
+        self._hold_exogenous_sum = float(self.exogenous[min(idx, len(self.exogenous) - 1)])
+        if target > 0:
+            self.sl = fill - self.sl_mult * atr
+            self.tp = fill + self.tp_mult * atr
+        else:
+            self.sl = fill + self.sl_mult * atr
+            self.tp = fill - self.tp_mult * atr
+        self.peak_equity_this_trade = self.equity
+        self.max_drawdown_this_trade = 0.0
+        reward = 0.0
+        if was_flat and target != 0:
+            reward += self.open_reward_bonus
+            primary = self._primary_direction_at(idx)
+            if primary == "long" and target > 0:
+                reward += self.cognition_align_bonus
+            elif primary == "short" and target < 0:
+                reward += self.cognition_align_bonus
+            elif primary in ("long", "short"):
+                reward -= self.cognition_align_penalty
+        return reward
+
     def _execute_action(self, action: int) -> float:
 
         if action == 0:
@@ -628,6 +743,28 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
             return reward - 0.01
 
         atr = float(self.data["atr"].iloc[self.current_step])
+
+        if self.execution_parity and was_flat:
+            direction = "long" if target > 0 else "short"
+            snap = self._struct_snapshot_at(self.current_step)
+            pos = self._pos_in_range_at(self.current_step)
+            loc = location_score(direction, pos, self._loc_cfg)
+            entry_target = structure_entry_target(
+                direction, snap, price, atr, loc_score=loc
+            )
+            high = float(self.data["high"].iloc[self.current_step])
+            low = float(self.data["low"].iloc[self.current_step])
+            fill_px = limit_fill_on_bar(direction, entry_target, high, low, price)
+            if fill_px is not None:
+                reward += self._open_position_at(fill_px, target, self.current_step)
+                reward += self._entry_quality_reward(direction, pos)
+                return reward
+            self.pending_direction = 1 if target > 0 else -1
+            self.pending_target = entry_target
+            self.pending_size = target
+            self.pending_expire_step = self.current_step + self.pending_expire_bars
+            self.signal_bar_close = price
+            return reward - 0.002
 
         fill = price + self._cost(price) * (1 if target > 0 else -1)
 
@@ -776,8 +913,10 @@ class TradingEnv(gym.Env if gym else object):  # type: ignore[misc]
             self.trajectory[-1]["reward"] = float(reward)
 
             if self.meta_learner is not None:
-
-                self.meta_learner.add_trajectory(list(self.trajectory))
+                regime = "unknown"
+                if self.trajectory and "regime" in self.trajectory[-1]:
+                    regime = str(self.trajectory[-1].get("regime", "unknown"))
+                self.meta_learner.add_trajectory(list(self.trajectory), regime=regime, pnl_r=float(reward))
 
 
 

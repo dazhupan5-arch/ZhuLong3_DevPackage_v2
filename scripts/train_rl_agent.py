@@ -130,6 +130,11 @@ def main() -> int:
     parser.add_argument("--timesteps", type=int, default=0)
     parser.add_argument("--quick", action="store_true", help="快速冒烟（5000 步）")
     parser.add_argument("--v16", action="store_true", help="使用 horizon_v16 NPZ + ONNX（V16 正式 PPO）")
+    parser.add_argument(
+        "--device",
+        default="",
+        help="覆盖 config_training.yaml device.rl：auto|cuda|cpu",
+    )
     args = parser.parse_args()
 
     try:
@@ -144,8 +149,9 @@ def main() -> int:
     print_gpu_status()
     paths = resolve_symbol_paths(args.symbol, cfg)
     dev_cfg = cfg.get("device") or {}
-    rl_device = resolve_sb3_device(str(dev_cfg.get("rl", "auto")))
-    print(f"PPO device: {rl_device}", flush=True)
+    rl_device_pref = str(args.device or dev_cfg.get("rl", "auto"))
+    rl_device = resolve_sb3_device(rl_device_pref)
+    print(f"PPO device: {rl_device} (pref={rl_device_pref})", flush=True)
 
     if args.v16:
         v16 = resolve_v16_paths(args.symbol, cfg)
@@ -240,6 +246,13 @@ def main() -> int:
             env_cfg["causal"] = agent_cfg.get("causal") or te.get("causal") or {}
         if "meta_learning" not in env_yaml:
             env_cfg["meta_learning"] = agent_cfg.get("meta_learning") or te.get("meta_learning") or {"enabled": False}
+        if args.v16 and "execution_parity" not in env_yaml:
+            env_cfg["execution_parity"] = te.get("execution_parity") or {
+                "enabled": True,
+                "entry_quality_bonus": 0.05,
+                "pending_expire_bars": 48,
+                "pending_expire_penalty": 0.01,
+            }
     shocks = np.clip(struct[:, 0] if struct.shape[1] else np.zeros(len(struct)), -3, 3).astype(np.float32)
     eval_shocks = np.clip(
         eval_struct[:, 0] if eval_struct.shape[1] else np.zeros(len(eval_struct)),

@@ -1,176 +1,202 @@
 {
-  "enabled": true,
-  "use_rl": true,
-  "primary_symbol": "XAUUSD",
-  "signal_expiry_minutes": 240,
-  "state_file": "data/agent_state.json",
-  "fallback_strategy": "none",
-  "architecture": {
-    "version": "v16",
-    "horizon_predictor": {
-      "horizon_bars": 12,
-      "gain_threshold": 0.002,
-      "min_direction_confidence": 0.48,
-      "model_path": "models/horizon_v16.onnx",
-      "scaler_path": "models/horizon_v16_scaler.pkl",
-      "model_id": "horizon_v16"
-    }
-  },
-  "trader_mind": {
-    "max_consecutive_losses": 6,
-    "sl_atr_mult": 1.2,
-    "tp_atr_mult": 2.0,
-    "ranging_sl_atr_mult": 1.8,
-    "choppy_sl_atr_mult": 2.0,
-    "min_confidence": 0.48
-  },
-  "execution_gates": {
-    "structure_location_gate": true,
-    "block_ranging_conflict": true,
-    "horizon_lock_direction": false
-  },
-  "kn2": {
-    "enabled": false,
-    "shadow_mode": true,
-    "model_path": "models/kn2_trader_v16.pth",
-    "min_confidence": 0.48
-  },
-  "cognition": {
-    "enabled": true,
-    "symbol": "XAUUSD",
-    "context_bars": 36,
-    "direction_min_hold_bars": 2,
-    "regime_min_hold_bars": 2,
-    "direction_threshold": 0.42,
-    "regime_fallback_for_direction": false,
-    "regime_min_confidence_for_direction": 0.55,
-    "regime_atr_mult": 0.5,
-    "narrative_alpha": 0.2,
-    "base_confidence_threshold": 0.6,
-    "max_position_mult": 1.2,
-    "min_position_mult": 0.2,
-    "thought_log_dir": "logs/cognition"
-  },
-  "structure_analyzer": {
-    "periods": [
-      "M5",
-      "M15",
-      "H1",
-      "H4"
-    ],
-    "zigzag_atr_mult": 0.5,
-    "lookback": 200
-  },
-  "knowledge_net": {
-    "model_path": "models/knowledge_net.onnx",
-    "model_path_pytorch": "models/knowledge_net.pth",
-    "scaler_path": "models/knowledge_scaler.pkl",
-    "model_path_oil": "models/knowledge_net_oil.onnx",
-    "model_path_oil_pytorch": "models/knowledge_net_oil.pth",
-    "scaler_path_oil": "models/knowledge_scaler_oil.pkl",
-    "input_dim": 68,
-    "input_dim_oil": 12,
-    "hidden_dim": 128,
-    "hidden_dim_oil": 128,
-    "embed_dim": 32
-  },
-  "causal": {
-    "enabled": true,
-    "coef_path": "models/causal_coef.pkl",
-    "graph_path": "config/causal_graph.yaml",
-    "fusion_weight": 0.3
-  },
-  "rl": {
-    "model_path_xau": "models/rl_agent_xau",
-    "model_path_oil": "models/rl_agent_oil",
-    "inference": {
-      "deterministic": true
-    }
-  },
-  "rl_inference": {
-    "action_threshold": 0.52,
-    "min_confidence_for_trade": 0.52,
-    "max_daily_trades": 5,
-    "risk_per_trade": 0.005
-  },
-  "trading_env": {
-    "initial_balance": 10000,
-    "slippage": 0.1,
-    "stop_loss_atr_mult": 1.2,
-    "take_profit_atr_mult": 2.0,
-    "max_hold_bars": 48,
-    "hold_penalty": 0.0,
-    "point_cost": {
-      "XAUUSD": 0.2,
-      "USOIL": 0.03
-    },
-    "counterfactual": {
-      "enabled": true
-    },
-    "causal": {
-      "coef_path": "models/causal_coef.pkl"
-    },
-    "meta_learning": {
-      "enabled": true
-    }
-  },
-  "counterfactual": {
-    "enabled": true
-  },
-  "meta_learning": {
-    "enabled": false,
-    "meta_learning_rate": 0.0001,
-    "inner_lr": 0.01,
-    "reg_beta": 0.001,
-    "meta_batch_size": 10,
-    "trajectory_buffer_size": 100,
-    "update_interval_steps": 50,
-    "max_param_delta_pct": 0.05,
-    "state_dir": "data/meta_learning"
-  },
-  "adaptation_trigger": {
-    "window": 20,
-    "threshold": 0.45
-  },
-  "trader_memory": {
-    "max_len": 20
-  },
-  "symbols": {
-    "XAUUSD": {
-      "enabled": true,
-      "broker_symbol": "XAUUSD",
-      "state_scaler_path": "data/agent_state_scaler_xauusd.json",
-      "state_file": "data/agent_state_xauusd.json",
-      "fallback_strategy": "none",
-      "knowledge_net": {
-        "model_path": "models/knowledge_net.onnx",
-        "model_path_pytorch": "models/knowledge_net.pth",
-        "scaler_path": "models/knowledge_scaler.pkl"
-      },
-      "rl": {
-        "model_path": "models/rl_agent_xau"
-      },
-      "cognition": {
-        "symbol": "XAUUSD"
-      }
-    },
-    "USOIL": {
-      "enabled": false,
-      "broker_symbol": "USOIL",
-      "state_scaler_path": "data/agent_state_scaler_usoil.json",
-      "state_file": "data/agent_state_usoil.json",
-      "fallback_strategy": "oil_v14",
-      "knowledge_net": {
-        "model_path": "models/knowledge_net_oil.onnx",
-        "model_path_pytorch": "models/knowledge_net_oil.pth",
-        "scaler_path": "models/knowledge_scaler_oil.pkl"
-      },
-      "rl": {
-        "model_path": "models/rl_agent_oil"
-      },
-      "cognition": {
-        "symbol": "USOIL"
-      }
-    }
-  }
+    "enabled":  true,
+    "use_rl":  true,
+    "primary_symbol":  "XAUUSD",
+    "signal_expiry_minutes":  240,
+    "state_file":  "data/agent_state.json",
+    "fallback_strategy":  "none",
+    "architecture":  {
+                         "version":  "v16",
+                         "horizon_predictor":  {
+                                                   "horizon_bars":  12,
+                                                   "gain_threshold":  0.002,
+                                                   "min_direction_confidence":  0.48,
+                                                   "model_path":  "models/horizon_v16.onnx",
+                                                   "scaler_path":  "models/horizon_v16_scaler.pkl",
+                                                   "model_id":  "horizon_v16"
+                                               }
+                     },
+    "trader_mind":  {
+                        "max_consecutive_losses":  6,
+                        "sl_atr_mult":  1.2,
+                        "tp_atr_mult":  2.0,
+                        "ranging_sl_atr_mult":  1.8,
+                        "choppy_sl_atr_mult":  2.0,
+                        "min_confidence":  0.48,
+                        "valid_bars":  48
+                    },
+    "execution_composer":  {
+                               "valid_bars":  48,
+                               "immediate_quality_min":  0.72,
+                               "limit_quality_min":  0.38
+                           },
+    "execution_gates":  {
+                            "structure_location_gate":  true,
+                            "block_ranging_conflict":  true,
+                            "horizon_lock_direction":  false
+                        },
+    "kn2":  {
+                "enabled":  true,
+                "shadow_mode":  false,
+                "model_path":  "models/kn2_trader_v16.pth",
+                "min_confidence":  0.48
+            },
+    "cognition":  {
+                      "enabled":  true,
+                      "symbol":  "XAUUSD",
+                      "context_bars":  36,
+                      "direction_min_hold_bars":  2,
+                      "regime_min_hold_bars":  2,
+                      "direction_threshold":  0.42,
+                      "regime_fallback_for_direction":  false,
+                      "regime_min_confidence_for_direction":  0.55,
+                      "regime_atr_mult":  0.5,
+                      "narrative_alpha":  0.2,
+                      "base_confidence_threshold":  0.6,
+                      "max_position_mult":  1.2,
+                      "min_position_mult":  0.2,
+                      "thought_log_dir":  "logs/cognition"
+                  },
+    "structure_analyzer":  {
+                               "periods":  [
+                                               "M5",
+                                               "M15",
+                                               "H1",
+                                               "H4"
+                                           ],
+                               "zigzag_atr_mult":  0.5,
+                               "lookback":  200
+                           },
+    "knowledge_net":  {
+                          "model_path":  "models/horizon_v16.onnx",
+                          "model_path_pytorch":  "models/horizon_v16.pth",
+                          "scaler_path":  "models/horizon_v16_scaler.pkl",
+                          "model_path_oil":  "models/knowledge_net_oil.onnx",
+                          "model_path_oil_pytorch":  "models/knowledge_net_oil.pth",
+                          "scaler_path_oil":  "models/knowledge_scaler_oil.pkl",
+                          "input_dim":  68,
+                          "input_dim_oil":  12,
+                          "hidden_dim":  128,
+                          "hidden_dim_oil":  128,
+                          "embed_dim":  32
+                      },
+    "causal":  {
+                   "enabled":  true,
+                   "coef_path":  "models/causal_coef.pkl",
+                   "graph_path":  "config/causal_graph.yaml",
+                   "fusion_weight":  0.3
+               },
+    "rl":  {
+               "model_path_xau":  "models/rl_agent_xau",
+               "model_path_oil":  "models/rl_agent_oil",
+               "inference":  {
+                                 "deterministic":  true
+                             }
+           },
+    "rl_inference":  {
+                         "action_threshold":  0.52,
+                         "min_confidence_for_trade":  0.52,
+                         "max_daily_trades":  5,
+                         "risk_per_trade":  0.005
+                     },
+    "trading_env":  {
+                        "initial_balance":  10000,
+                        "slippage":  0.1,
+                        "stop_loss_atr_mult":  1.2,
+                        "take_profit_atr_mult":  2.0,
+                        "max_hold_bars":  48,
+                        "hold_penalty":  0.0,
+                        "execution_parity":  {
+                                                  "enabled":  true,
+                                                  "entry_quality_bonus":  0.05,
+                                                  "pending_expire_bars":  48,
+                                                  "pending_expire_penalty":  0.01
+                                              },
+                        "point_cost":  {
+                                           "XAUUSD":  0.2,
+                                           "USOIL":  0.03
+                                       },
+                        "counterfactual":  {
+                                               "enabled":  true
+                                           },
+                        "causal":  {
+                                       "coef_path":  "models/causal_coef.pkl"
+                                   },
+                        "meta_learning":  {
+                                              "enabled":  true
+                                          }
+                    },
+    "counterfactual":  {
+                           "enabled":  true
+                       },
+    "meta_learning":  {
+                          "enabled":  true,
+                          "meta_learning_rate":  0.0001,
+                          "regime_learning_rate":  0.00015,
+                          "regime_conditional":  true,
+                          "inner_lr":  0.01,
+                          "reg_beta":  0.001,
+                          "meta_batch_size":  10,
+                          "trajectory_buffer_size":  100,
+                          "update_interval_steps":  50,
+                          "max_param_delta_pct":  0.05,
+                          "state_dir":  "data/meta_learning"
+                      },
+    "meta_finetune":  {
+                          "enabled":  true,
+                          "symbol":  "XAUUSD",
+                          "consecutive_triggers":  3,
+                          "timesteps":  5000,
+                          "auto_run":  false
+                      },
+    "attribution":  {
+                        "enabled":  true,
+                        "report_path":  "data/attribution/weekly_report.json",
+                        "min_samples":  5
+                    },
+    "adaptation_trigger":  {
+                               "window":  20,
+                               "threshold":  0.45
+                           },
+    "trader_memory":  {
+                          "max_len":  20
+                      },
+    "symbols":  {
+                    "XAUUSD":  {
+                                   "enabled":  true,
+                                   "broker_symbol":  "XAUUSD",
+                                   "state_scaler_path":  "data/agent_state_scaler_xauusd.json",
+                                   "state_file":  "data/agent_state_xauusd.json",
+                                   "fallback_strategy":  "none",
+                                   "knowledge_net":  {
+                                                         "model_path":  "models/knowledge_net.onnx",
+                                                         "model_path_pytorch":  "models/knowledge_net.pth",
+                                                         "scaler_path":  "models/knowledge_scaler.pkl"
+                                                     },
+                                   "rl":  {
+                                              "model_path":  "models/rl_agent_xau"
+                                          },
+                                   "cognition":  {
+                                                     "symbol":  "XAUUSD"
+                                                 }
+                               },
+                    "USOIL":  {
+                                  "enabled":  false,
+                                  "broker_symbol":  "USOIL",
+                                  "state_scaler_path":  "data/agent_state_scaler_usoil.json",
+                                  "state_file":  "data/agent_state_usoil.json",
+                                  "fallback_strategy":  "oil_v14",
+                                  "knowledge_net":  {
+                                                        "model_path":  "models/knowledge_net_oil.onnx",
+                                                        "model_path_pytorch":  "models/knowledge_net_oil.pth",
+                                                        "scaler_path":  "models/knowledge_scaler_oil.pkl"
+                                                    },
+                                  "rl":  {
+                                             "model_path":  "models/rl_agent_oil"
+                                         },
+                                  "cognition":  {
+                                                    "symbol":  "USOIL"
+                                                }
+                              }
+                }
 }
