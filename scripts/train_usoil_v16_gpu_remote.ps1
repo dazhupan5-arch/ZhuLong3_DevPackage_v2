@@ -72,25 +72,25 @@ else:
 
 if (-not $SkipDataCheck) {
     Write-Step "数据校验 (git lfs)"
-    foreach ($p in @($HorizonNpz, $Kn2Npz)) {
-        if (-not (Test-Path $p)) {
-            Write-Host @"
+    if (-not (Test-Path $HorizonNpz)) {
+        Write-Host @"
 
-缺少: $p
+缺少: $HorizonNpz
 
 开发机生成并 push:
   powershell -File scripts/prepare_usoil_v16_data.ps1
   git lfs push origin main
 
-GPU 机:
-  git pull
-  git lfs pull
-
 "@ -ForegroundColor Yellow
-            exit 1
-        }
-        $mb = [math]::Round((Get-Item $p).Length / 1MB, 1)
-        Write-Host "OK $p (${mb} MB)" -ForegroundColor Green
+        exit 1
+    }
+    $mb = [math]::Round((Get-Item $HorizonNpz).Length / 1MB, 1)
+    Write-Host "OK $HorizonNpz (${mb} MB)" -ForegroundColor Green
+    if (-not (Test-Path $Kn2Npz)) {
+        Write-Host "KN2 NPZ 尚未就绪 — Horizon 训完 ONNX 后自动生成" -ForegroundColor Yellow
+    } else {
+        $mb2 = [math]::Round((Get-Item $Kn2Npz).Length / 1MB, 1)
+        Write-Host "OK $Kn2Npz (${mb2} MB)" -ForegroundColor Green
     }
 }
 
@@ -127,6 +127,19 @@ if (-not $SkipHorizon) {
 }
 
 if (-not $SkipKn2) {
+    if (-not (Test-Path $Kn2Npz)) {
+        Write-Step "Step 2b/4 生成 KN2 65 维特征 (Horizon ONNX 推理)"
+        py -3 scripts/prepare_kn2_v16_data.py `
+            --npz data/clean/training_horizon_v16_usoil.npz `
+            --out data/clean/kn2_training_v16_usoil.npz `
+            --horizon-onnx models/USOIL/v16/horizon_v16.onnx `
+            --horizon-scaler models/USOIL/v16/horizon_v16_scaler.pkl
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        py -3 scripts/prepare_kn2_v16_location_labels.py `
+            --npz data/clean/kn2_training_v16_usoil.npz `
+            --out data/clean/kn2_training_v16_usoil_location.npz
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    }
     Write-Step "Step 3/4 KN2 V16 GRU ($Symbol)"
     $log = Join-Path $logDir "usoil_kn2_v16_$ts.log"
     py -3 -u scripts/train_kn2_v16.py `

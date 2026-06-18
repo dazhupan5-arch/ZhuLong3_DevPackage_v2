@@ -1,5 +1,5 @@
 {
-  "total_bars": 672465,
+  "total_bars": 669691,
   "config": {
     "max_support_dist": 0.5,
     "max_resistance_dist": 0.5,
@@ -21,45 +21,45 @@
     "min_rr": 1.2
   },
   "legacy_counts": {
-    "short": 58806,
-    "flat": 550833,
-    "long": 62826
+    "short": 145109,
+    "flat": 372138,
+    "long": 152444
   },
   "gated_counts": {
-    "short": 24212,
-    "flat": 623091,
-    "long": 25162
+    "short": 62586,
+    "flat": 543683,
+    "long": 63422
   },
   "legacy_pct": {
-    "short": 8.745,
-    "flat": 81.913,
-    "long": 9.343
+    "short": 21.668,
+    "flat": 55.569,
+    "long": 22.763
   },
   "gated_pct": {
-    "short": 3.6,
-    "flat": 92.658,
-    "long": 3.742
+    "short": 9.346,
+    "flat": 81.184,
+    "long": 9.47
   },
-  "filtered_long": 37664,
-  "filtered_short": 34594,
-  "long_candidate_pct": 38.942,
-  "short_candidate_pct": 41.245,
+  "filtered_long": 89022,
+  "filtered_short": 82523,
+  "long_candidate_pct": 39.344,
+  "short_candidate_pct": 42.121,
   "by_regime": {
     "ranging": {
-      "bars": 672465,
-      "legacy_long": 62826,
-      "gated_long": 25162,
-      "legacy_short": 58806,
-      "gated_short": 24212
+      "bars": 669691,
+      "legacy_long": 152444,
+      "gated_long": 63422,
+      "legacy_short": 145109,
+      "gated_short": 62586
     }
   },
   "gate_reasons": {
-    "blocked_long": 37664,
-    "blocked_short": 34594
+    "blocked_long": 89022,
+    "blocked_short": 82523
   },
-  "generated_at": "2026-06-16T15:09:52.085661+00:00",
-  "source_npz": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\clean\\training_horizon_v16.npz",
-  "elapsed_sec": 3.78,
+  "generated_at": "2026-06-17T19:45:07.270025+00:00",
+  "source_npz": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\data\\clean\\training_horizon_v16_usoil.npz",
+  "elapsed_sec": 3.65,
   "replay_cases": [
     {
       "name": "replay_ranging_top_chase_long",
@@ -97,73 +97,73 @@
     }
   ],
   "year_2016": {
-    "bars": 69590,
-    "legacy_long": 7012,
-    "gated_long": 2772,
-    "legacy_short": 7093,
-    "gated_short": 2823
+    "bars": 62748,
+    "legacy_long": 16627,
+    "gated_long": 6741,
+    "legacy_short": 16429,
+    "gated_short": 6680
   },
   "year_2017": {
-    "bars": 69279,
-    "legacy_long": 3409,
-    "gated_long": 1364,
-    "legacy_short": 3286,
-    "gated_short": 1228
+    "bars": 58719,
+    "legacy_long": 10104,
+    "gated_long": 4009,
+    "legacy_short": 9365,
+    "gated_short": 3851
   },
   "year_2018": {
-    "bars": 67300,
-    "legacy_long": 3243,
-    "gated_long": 1250,
-    "legacy_short": 3181,
-    "gated_short": 1209
+    "bars": 66402,
+    "legacy_long": 11317,
+    "gated_long": 4612,
+    "legacy_short": 11246,
+    "gated_short": 4599
   },
   "year_2019": {
-    "bars": 63876,
-    "legacy_long": 4462,
-    "gated_long": 1761,
-    "legacy_short": 4148,
-    "gated_short": 1728
+    "bars": 64361,
+    "legacy_long": 13562,
+    "gated_long": 5468,
+    "legacy_short": 12293,
+    "gated_short": 5223
   },
   "year_2020": {
-    "bars": 69046,
-    "legacy_long": 9407,
-    "gated_long": 3785,
-    "legacy_short": 8567,
-    "gated_short": 3684
+    "bars": 68827,
+    "legacy_long": 20371,
+    "gated_long": 8262,
+    "legacy_short": 20075,
+    "gated_short": 8438
   },
   "year_2021": {
-    "bars": 69125,
-    "legacy_long": 5892,
-    "gated_long": 2456,
-    "legacy_short": 5748,
-    "gated_short": 2287
+    "bars": 70148,
+    "legacy_long": 15914,
+    "gated_long": 6193,
+    "legacy_short": 14070,
+    "gated_short": 5921
   },
   "year_2022": {
-    "bars": 69507,
-    "legacy_long": 6966,
-    "gated_long": 2880,
-    "legacy_short": 6820,
-    "gated_short": 2803
+    "bars": 70628,
+    "legacy_long": 20699,
+    "gated_long": 8343,
+    "legacy_short": 19361,
+    "gated_short": 8135
   },
   "year_2023": {
-    "bars": 66104,
-    "legacy_long": 5109,
-    "gated_long": 2000,
-    "legacy_short": 4981,
-    "gated_short": 2038
+    "bars": 69746,
+    "legacy_long": 14870,
+    "gated_long": 6239,
+    "legacy_short": 14162,
+    "gated_short": 5763
   },
   "year_2024": {
-    "bars": 59427,
-    "legacy_long": 6836,
-    "gated_long": 2751,
-    "legacy_short": 6375,
-    "gated_short": 2629
+    "bars": 69020,
+    "legacy_long": 13199,
+    "gated_long": 5491,
+    "legacy_short": 12647,
+    "gated_short": 5396
   },
   "year_2025": {
-    "bars": 69211,
-    "legacy_long": 10490,
-    "gated_long": 4143,
-    "legacy_short": 8607,
-    "gated_short": 3783
+    "bars": 69092,
+    "legacy_long": 15781,
+    "gated_long": 8064,
+    "legacy_short": 15461,
+    "gated_short": 8580
   }
 }
