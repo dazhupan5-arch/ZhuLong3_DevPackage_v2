@@ -164,6 +164,26 @@ def config_search_paths() -> list[Path]:
     ]
 
 
+def resolve_agent_config_path(cfg_rel: str | Path, root: Path | None = None) -> Path:
+    """config_agent.json 优先 AppData，与 warmup/C# AgentConfigSync 一致。"""
+    p = Path(cfg_rel)
+    base = root or install_dir()
+    if p.is_absolute() and p.is_file():
+        return p.resolve()
+    name = p.name if p.name else "config_agent.json"
+    candidates = [
+        appdata_dir() / name,
+        appdata_dir() / p,
+        base / p,
+        base / "config" / "config_agent.json",
+        appdata_dir() / "config_agent.json",
+    ]
+    for c in candidates:
+        if c.is_file():
+            return c.resolve()
+    return (base / p).resolve()
+
+
 def default_config_template() -> dict[str, Any]:
     for candidate in (install_dir() / "config.json", Path(__file__).resolve().parent.parent.parent / "config.json"):
         if candidate.is_file():

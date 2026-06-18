@@ -1012,30 +1012,37 @@ class ThoughtTrace:
     entry_should_wait: bool = False  # 是否应等待更优价（追价过高）
     entry_wait_reason: str = ""
     exit_reasoning: str = ""        # 平仓/调整理由
+    trail_mode: str = "hold"        # hold | run | tighten
+    suggested_trailing_sl: float = 0.0
+    position_mgmt_reason: str = ""
     # ===== 结束 =====
 
     def to_dict(self) -> dict[str, Any]:
+        def _rf(v: float, n: int = 4) -> float:
+            x = float(v)
+            return round(x, n) if math.isfinite(x) else 0.0
+
         return {
             "ts": self.timestamp,
             "symbol": self.symbol,
-            "knowledge_probs": [round(x, 4) for x in self.knowledge_probs],
-            "causal_pred": round(self.causal_pred, 6),
+            "knowledge_probs": [_rf(x) for x in self.knowledge_probs],
+            "causal_pred": _rf(self.causal_pred, 6),
             "regime": self.regime,
-            "regime_confidence": round(self.regime_confidence, 4),
+            "regime_confidence": _rf(self.regime_confidence),
             "narrative": self.narrative,
             "narrative_events": self.narrative_events,
             "intervention_analysis": self.intervention_analysis,
-            "agreement_score": round(self.agreement_score, 4),
+            "agreement_score": _rf(self.agreement_score),
             "conflicts": self.conflicts,
-            "calibrated_probs": [round(x, 4) for x in self.calibrated_probs],
-            "confidence": round(self.confidence, 4),
+            "calibrated_probs": [_rf(x) for x in self.calibrated_probs],
+            "confidence": _rf(self.confidence),
             "reasoning_chain": self.reasoning_chain,
-            "risk_score": self.risk_score,
+            "risk_score": _rf(self.risk_score),
             "risk_warnings": self.risk_warnings,
-            "position_mult": self.position_mult,
+            "position_mult": _rf(self.position_mult),
             "should_trade": self.should_trade,
             # ===== P2-2 =====
-            "exit_assessment": round(self.exit_assessment, 4),
+            "exit_assessment": _rf(self.exit_assessment),
             "exit_reason": self.exit_reason,
             "ai_sl_price": round(self.ai_sl_price, 5) if self.ai_sl_price else 0.0,
             "ai_tp_price": round(self.ai_tp_price, 5) if self.ai_tp_price else 0.0,
@@ -1043,6 +1050,11 @@ class ThoughtTrace:
             "entry_should_wait": self.entry_should_wait,
             "entry_wait_reason": self.entry_wait_reason,
             "exit_reasoning": self.exit_reasoning,
+            "trail_mode": self.trail_mode,
+            "suggested_trailing_sl": round(self.suggested_trailing_sl, 5)
+            if self.suggested_trailing_sl
+            else 0.0,
+            "position_mgmt_reason": self.position_mgmt_reason,
             # ===== 结束 =====
         }
 
@@ -1143,6 +1155,7 @@ class CognitionEngine:
         tick_ask: float = 0.0,
         position_ctx: dict[str, Any] | None = None,
         lock_forecast_direction: str | None = None,
+        macro_features: np.ndarray | list | None = None,
     ) -> ThoughtTrace:
         """
         运行完整认知链路。
@@ -1182,7 +1195,7 @@ class CognitionEngine:
 
         # --- Step 3: 因果叙事 ---
         # 从结构特征估算因果变量
-        macro_shock = self._estimate_macro_shock(sf, ctx)
+        macro_shock = self._estimate_macro_shock(sf, ctx, macro_features=macro_features)
         risk_av = self._estimate_risk_aversion(sf)
         dollar = self._estimate_dollar(sf)
         demand = self._estimate_demand(sf)
@@ -1286,8 +1299,21 @@ class CognitionEngine:
 
         return thought
 
-    def _estimate_macro_shock(self, struct: np.ndarray, ctx: BarContext) -> float:
-        """从结构特征估算宏观冲击强度。"""
+    def _estimate_macro_shock(
+        self,
+        struct: np.ndarray,
+        ctx: BarContext,
+        *,
+        macro_features: np.ndarray | list | None = None,
+    ) -> float:
+        """从 C# 宏观向量或结构特征估算宏观冲击强度。"""
+        if macro_features is not None:
+            f = np.asarray(macro_features, dtype=np.float64).reshape(-1)
+            if f.size >= 8:
+                shock = float(f[3]) * float(f[1]) * 2.0 - 1.0
+                shock += (float(f[5]) - 0.5) * 0.5
+                shock += (float(f[7]) - 0.5) * 0.3
+                return float(np.clip(shock, -2.0, 2.0))
         if struct.size > 5:
             trend = float(struct[0])
             vol_proxy = float(struct[min(5, struct.size - 1)])
@@ -1400,6 +1426,12 @@ class CognitionEngine:
                 result["reason"] = "入场价高于智能体止损"
         return result
 
+    def _regime_metrics(self, struct_features: np.ndarray) -> dict[str, float]:
+        """RegimeDetector.detect 返回 (name, conf, metrics) 三元组。"""
+        sf = np.asarray(struct_features, dtype=np.float32).reshape(-1)
+        _, _, metrics = self.regime.detect(self.context, sf)
+        return metrics if isinstance(metrics, dict) else {}
+
     def sl_tp_for_direction(
         self,
         direction: str,
@@ -1446,6 +1478,150 @@ class CognitionEngine:
         sl, _ = self.sl_tp_for_direction(direction, thought, struct_features, close, atr)
         return sl
 
+    def evaluate_position_management(
+        self,
+        thought: ThoughtTrace,
+        position_ctx: dict[str, Any],
+        struct_features: np.ndarray,
+        close: float,
+        atr: float,
+        rl_action: int = 0,
+        tick_bid: float = 0.0,
+        tick_ask: float = 0.0,
+        horizon_direction: str = "",
+        horizon_confidence: float = 0.0,
+        kn2_dec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """M5 持仓管理：结构 SL/TP、trail_mode、扩展 exit_assessment（波段/Horizon/KN2）。"""
+        pos_dir = str(position_ctx.get("direction") or "")
+        if pos_dir not in ("buy", "sell"):
+            return {
+                "exit_score": 0.0,
+                "exit_reason": "",
+                "reasoning": "",
+                "trail_mode": "hold",
+                "suggested_trailing_sl": 0.0,
+                "ai_sl_price": 0.0,
+                "ai_tp_price": 0.0,
+                "position_mgmt_reason": "",
+            }
+
+        sf = np.asarray(struct_features, dtype=np.float32).reshape(-1)
+        regime_metrics = self._regime_metrics(sf)
+        pos_in_range = float(regime_metrics.get("pos_in_range", 0.5))
+
+        exit_eval = self._evaluate_exit(
+            context=self.context,
+            calibrated_probs=thought.calibrated_probs,
+            confidence=thought.confidence,
+            regime=thought.regime,
+            close=close,
+            atr=atr,
+            position_ctx=position_ctx,
+            tick_bid=tick_bid,
+            tick_ask=tick_ask,
+            rl_action=rl_action,
+            horizon_direction=horizon_direction,
+            horizon_confidence=horizon_confidence,
+            kn2_dec=kn2_dec,
+            pos_in_range=pos_in_range,
+            struct_features=sf,
+        )
+
+        trade_dir = "buy" if pos_dir == "buy" else "sell"
+        struct_sl, struct_tp = self.sl_tp_for_direction(
+            trade_dir, thought, sf, close, atr, entry_anchored=False
+        )
+
+        entry = float(position_ctx.get("entry") or 0.0)
+        current_sl = float(position_ctx.get("sl") or 0.0)
+        current_tp = float(position_ctx.get("tp") or 0.0)
+        profit_pct = float(position_ctx.get("profit_pct") or 0.0)
+        peak_profit = float(position_ctx.get("peak_profit_pct") or profit_pct)
+        hold_seconds = float(position_ctx.get("hold_seconds") or 0.0)
+        min_hold = float(position_ctx.get("min_hold_seconds_before_trailing") or 60.0)
+
+        trail_mode = "hold"
+        mgmt_reasons: list[str] = []
+        suggested_sl = 0.0
+        ai_sl = 0.0
+        ai_tp = struct_tp if struct_tp > 0 else current_tp
+
+        trend_with_pos = (
+            (pos_dir == "buy" and thought.regime in ("trending_up", "breakout_up"))
+            or (pos_dir == "sell" and thought.regime in ("trending_down", "breakout_down"))
+        )
+        wave_extreme = (pos_dir == "buy" and pos_in_range >= 0.88) or (
+            pos_dir == "sell" and pos_in_range <= 0.12
+        )
+        h_dir = str(horizon_direction or "").lower()
+        horizon_against = (pos_dir == "buy" and h_dir in ("short", "flat")) or (
+            pos_dir == "sell" and h_dir in ("long", "flat")
+        )
+
+        min_profit_for_trail = 0.15
+        if hold_seconds < min_hold:
+            trail_mode = "hold"
+            mgmt_reasons.append(f"持仓{hold_seconds:.0f}s<{min_hold:.0f}s暂不动止损")
+        elif profit_pct < min_profit_for_trail:
+            trail_mode = "hold"
+            mgmt_reasons.append(f"浮盈{profit_pct:.2f}%<{min_profit_for_trail}%观察")
+        elif wave_extreme and (horizon_against or thought.regime in ("choppy", "ranging")):
+            trail_mode = "tighten"
+            mgmt_reasons.append(
+                f"波段末端 pos={pos_in_range:.2f} regime={thought.regime}"
+            )
+        elif trend_with_pos and not wave_extreme and profit_pct >= 0.25:
+            trail_mode = "run"
+            mgmt_reasons.append(f"顺势波段运行 pos={pos_in_range:.2f}")
+        elif profit_pct >= 0.6 and peak_profit >= 0.8:
+            trail_mode = "tighten"
+            mgmt_reasons.append(f"浮盈回撤保护 peak={peak_profit:.2f}%")
+        elif profit_pct >= 0.25:
+            trail_mode = "run"
+            mgmt_reasons.append("结构允许正向移损")
+        else:
+            trail_mode = "hold"
+            mgmt_reasons.append("波动不足保持原止损")
+
+        if trail_mode in ("run", "tighten") and struct_sl > 0:
+            if pos_dir == "buy":
+                base = current_sl if current_sl > 0 else struct_sl
+                candidate = struct_sl if struct_sl > base else base
+                if entry > 0 and candidate < entry and profit_pct < 0.5:
+                    candidate = base
+                suggested_sl = max(base, candidate)
+                ai_sl = suggested_sl
+            else:
+                base = current_sl if current_sl > 0 else struct_sl
+                candidate = struct_sl if struct_sl < base else base
+                if entry > 0 and candidate > entry and profit_pct < 0.5:
+                    candidate = base
+                suggested_sl = min(base, candidate) if base > 0 else candidate
+                ai_sl = suggested_sl
+
+        if trail_mode == "run" and struct_tp > 0:
+            if pos_dir == "buy":
+                ai_tp = max(current_tp, struct_tp) if current_tp > 0 else struct_tp
+            else:
+                ai_tp = min(current_tp, struct_tp) if current_tp > 0 else struct_tp
+
+        if kn2_dec and float(kn2_dec.get("confidence", 0)) >= 0.55:
+            kn2_action = str(kn2_dec.get("action_name") or kn2_dec.get("action") or "").lower()
+            if kn2_action in ("close", "flat", "hold") and wave_extreme:
+                mgmt_reasons.append(f"KN2建议{kn2_action}")
+
+        position_mgmt_reason = "; ".join(mgmt_reasons[:3])
+        return {
+            **exit_eval,
+            "trail_mode": trail_mode,
+            "suggested_trailing_sl": round(suggested_sl, 5) if suggested_sl > 0 else 0.0,
+            "ai_sl_price": round(ai_sl, 5) if ai_sl > 0 else 0.0,
+            "ai_tp_price": round(ai_tp, 5) if ai_tp > 0 else 0.0,
+            "position_mgmt_reason": position_mgmt_reason,
+            "pos_in_range": round(pos_in_range, 4),
+        }
+
     def evaluate_exit_for_position(
         self,
         thought: ThoughtTrace,
@@ -1455,8 +1631,16 @@ class CognitionEngine:
         atr: float,
         tick_bid: float = 0.0,
         tick_ask: float = 0.0,
+        horizon_direction: str = "",
+        horizon_confidence: float = 0.0,
+        kn2_dec: dict[str, Any] | None = None,
+        struct_features: np.ndarray | None = None,
     ) -> dict[str, Any]:
         """持仓出场评估：须在 RL 决策之后调用，传入 rl_action。"""
+        sf = np.asarray(struct_features, dtype=np.float32).reshape(-1) if struct_features is not None else None
+        pos_in_range = 0.5
+        if sf is not None:
+            pos_in_range = float(self._regime_metrics(sf).get("pos_in_range", 0.5))
         return self._evaluate_exit(
             context=self.context,
             calibrated_probs=thought.calibrated_probs,
@@ -1468,6 +1652,11 @@ class CognitionEngine:
             tick_bid=tick_bid,
             tick_ask=tick_ask,
             rl_action=rl_action,
+            horizon_direction=horizon_direction,
+            horizon_confidence=horizon_confidence,
+            kn2_dec=kn2_dec,
+            pos_in_range=pos_in_range,
+            struct_features=sf,
         )
 
     def _evaluate_exit(
@@ -1482,6 +1671,11 @@ class CognitionEngine:
         tick_bid: float = 0.0,
         tick_ask: float = 0.0,
         rl_action: int = 0,
+        horizon_direction: str = "",
+        horizon_confidence: float = 0.0,
+        kn2_dec: dict[str, Any] | None = None,
+        pos_in_range: float = 0.5,
+        struct_features: np.ndarray | None = None,
     ) -> dict[str, Any]:
         """
         评估是否应该平仓。
@@ -1586,8 +1780,11 @@ class CognitionEngine:
             long_prob = calibrated_probs[2]
 
             if flat_prob > 0.5 and confidence > 0.5 and rl_action in (0, 5):
-                score += 0.6
-                reasons.append(f"观望概率={flat_prob:.0%} > 50%")
+                if not position_ctx or profit_pct >= 0.8 or hold_minutes >= 15:
+                    score += 0.6
+                    reasons.append(f"观望概率={flat_prob:.0%} > 50%")
+                elif position_ctx and profit_pct < 0.5:
+                    reasons.append(f"观望概率高但持仓初期({profit_pct:.2f}%)暂不出场")
 
             max_dir = max(long_prob, short_prob)
             if max_dir > 0.3 and abs(long_prob - short_prob) < 0.05 and rl_action == 0:
@@ -1599,6 +1796,8 @@ class CognitionEngine:
             if not position_ctx or profit_pct >= 0.5:
                 score += 0.2
                 reasons.append(f"市场状态={regime}")
+            elif position_ctx and profit_pct < 0.3 and hold_minutes < 10:
+                reasons.append(f"震荡初期({hold_minutes:.0f}min)不因choppy单独出场")
 
         closes = context.close_sequence(6)
         if len(closes) >= 6:
@@ -1610,11 +1809,68 @@ class CognitionEngine:
                     reasons.append("近期窄幅震荡")
 
         atr_hist = [float(b.atr) for b in context.bars if getattr(b, "atr", 0.0) > 0]
+        atr_regime_high = False
         if len(atr_hist) >= 6:
             atr_mean = float(np.mean(atr_hist[-12:]))
             if atr_mean > 0 and atr > atr_mean * 1.8:
+                atr_regime_high = True
                 score += 0.2
                 reasons.append("ATR异常扩大")
+
+        # ===== 波段/Horizon/KN2 扩展出场 =====
+        if position_ctx and pos_dir in ("buy", "sell"):
+            h_dir = str(horizon_direction or "").lower()
+            h_conf = float(horizon_confidence or 0.0)
+            wave_top = (pos_dir == "buy" and pos_in_range >= 0.90) or (
+                pos_dir == "sell" and pos_in_range <= 0.10
+            )
+            if wave_top and profit_pct >= 0.3:
+                score += 0.25
+                reasons.append(f"波段末端 pos={pos_in_range:.2f}")
+
+            if h_conf >= 0.48:
+                if pos_dir == "buy" and h_dir in ("flat", "short"):
+                    score += 0.2 if h_dir == "flat" else 0.35
+                    reasons.append(f"Horizon={h_dir}({h_conf:.0%})")
+                elif pos_dir == "sell" and h_dir in ("flat", "long"):
+                    score += 0.2 if h_dir == "flat" else 0.35
+                    reasons.append(f"Horizon={h_dir}({h_conf:.0%})")
+
+            if kn2_dec:
+                kn2_conf = float(kn2_dec.get("confidence", 0))
+                kn2_action = str(kn2_dec.get("action_name") or kn2_dec.get("action") or "").lower()
+                if kn2_conf >= 0.55:
+                    if kn2_action in ("close", "flat") or (
+                        pos_dir == "buy" and kn2_action in ("short", "sell")
+                    ) or (pos_dir == "sell" and kn2_action in ("long", "buy")):
+                        score += 0.3
+                        reasons.append(f"KN2={kn2_action}({kn2_conf:.0%})")
+
+            if wave_top and profit_pct >= 0.5 and (
+                h_dir in ("flat", "") or regime in ("ranging", "choppy")
+            ):
+                score += 0.2
+                reasons.append("波段走完+观望/震荡")
+
+            if struct_features is not None and struct_features.size >= 4 and atr > 0:
+                if pos_dir == "buy":
+                    res = self.risk._extract_resistance(struct_features, close, atr)
+                    if res > 0 and close >= res - atr * 0.15 and profit_pct >= 0.4:
+                        score += 0.15
+                        reasons.append(f"接近结构阻力{res:.2f}")
+                else:
+                    sup = self.risk._extract_support(struct_features, close, atr)
+                    if sup > 0 and close <= sup + atr * 0.15 and profit_pct >= 0.4:
+                        score += 0.15
+                        reasons.append(f"接近结构支撑{sup:.2f}")
+
+            trend_with_pos = (
+                (pos_dir == "buy" and regime in ("trending_up", "breakout_up"))
+                or (pos_dir == "sell" and regime in ("trending_down", "breakout_down"))
+            )
+            if atr_regime_high and profit_pct >= 0.4 and not trend_with_pos:
+                score += 0.15
+                reasons.append("高波动非顺势保护")
 
         result["exit_score"] = round(min(score, 1.0), 4)
         result["exit_reason"] = "; ".join(reasons[:3]) if reasons else ""
@@ -1659,7 +1915,12 @@ class CognitionEngine:
         for ts, row in hist.iterrows():
             bar_key = str(ts)
             loc = m5.index.get_loc(ts)
-            idx = int(loc) if isinstance(loc, (int, np.integer)) else int(loc.start)
+            if isinstance(loc, np.ndarray):
+                idx = int(loc[-1])
+            elif isinstance(loc, slice):
+                idx = int(loc.start) if loc.start is not None else 0
+            else:
+                idx = int(loc)
             close = float(row["close"])
             atr_val = float(atr_s.iloc[idx]) if idx < len(atr_s) and not pd.isna(atr_s.iloc[idx]) else close * 0.001
             start = max(0, idx - 6)

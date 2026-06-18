@@ -36,8 +36,8 @@ def test_meta_learner_update_preserves_small_bias(tmp_path):
         {"state": np.zeros(74), "action": 1, "reward": 0.5},
         {"state": np.ones(74), "action": 1, "reward": 0.3},
     ]
-    ml.add_trajectory(traj)
-    ml.add_trajectory(traj)
+    ml.add_trajectory(traj, pnl_r=0.5)
+    ml.add_trajectory(traj, pnl_r=0.3)
     result = ml.meta_update(batch_size=2)
     assert not result.get("skipped")
     assert float(np.linalg.norm(ml.action_bias())) < 1.0

@@ -181,10 +181,9 @@ class TradingAgent:
         m5: pd.DataFrame,
         decision_idx: int,
     ) -> None:
-        """合并 TraderMind / 认知 / 结构位置门控。"""
+        """合并 ExecutionPlan / 认知 / 结构位置门控（V16 以 plan 为主路径）。"""
         plan_ok = bool(v16_plan.should_trade) if v16_plan is not None else True
-        cog_ok = bool(thought.should_trade)
-        merged = plan_ok and cog_ok
+        merged = plan_ok
 
         if self.block_ranging_conflict and thought.regime in ("ranging", "choppy"):
             conflicts = thought.conflicts or []
@@ -781,7 +780,6 @@ class TradingAgent:
                 "neutral",
                 "",
             )
-            kn2_dec_early: dict[str, Any] | None = None
             self._ensure_kn2()
             if self._kn2 is not None and market_feat_kn2 is not None and self._kn2.is_ready:
                 from zhulong.agent.knowledge_net_kn2 import encode_position_state
@@ -1048,10 +1046,12 @@ class TradingAgent:
         closes_for_pos = m5["close"].values.astype(np.float32)
         pos_arr_all = compute_pos_in_range(closes_for_pos)
         pos_in_range_val = float(pos_arr_all[decision_idx]) if decision_idx < len(pos_arr_all) else 0.5
+        preserve_working_intent = False
+        entry_wait_reason = ""
         if (
             not filter_reason
             and self.structure_location_gate
-            and action in (1, 2)
+            and action in (1, 2, 3, 4)
             and cognition_dir in ("long", "short")
             and (
                 v16_plan is None
@@ -1115,7 +1115,8 @@ class TradingAgent:
                     thought.ai_sl_price = ai_sl
                     thought.ai_tp_price = ai_tp
                 if emit_intent and entry_eval.get("should_wait"):
-                    filter_reason = filter_reason or str(entry_eval.get("reason") or "working_intent")
+                    preserve_working_intent = True
+                    entry_wait_reason = str(entry_eval.get("reason") or "working_intent")
         # 持仓中：M5 智能体结构 SL/TP + trail_mode（禁止 M1 机械保本移损）
         if position_ctx and str(position_ctx.get("direction") or "") in ("buy", "sell"):
             h_dir = ""
@@ -1204,6 +1205,8 @@ class TradingAgent:
             "entry_mode": str(getattr(v16_plan, "entry_mode", "") or "") if v16_plan else "",
             "entry_quality": round(float(getattr(v16_plan, "entry_quality", 0) or 0), 4) if v16_plan else 0.0,
             "entry_target": round(float(getattr(v16_plan, "entry_target", 0) or 0), 5) if v16_plan else 0.0,
+            "entry_wait_reason": entry_wait_reason,
+            "preserve_working_intent": preserve_working_intent,
             "cognition_regime": thought.regime,
             "fallback_strategy": self.fallback_strategy,
             "knowledge_ready": (
@@ -1257,10 +1260,16 @@ class TradingAgent:
         sig = self._action_to_signal(
             action, symbol, close, atr, confidence, prob_row, causal_pred, thought, high, low, v16_plan
         )
-        if filter_reason and sig:
+        if filter_reason and sig and not preserve_working_intent:
             sig = dict(sig)
             sig["direction"] = "flat"
             sig["reject_reason"] = filter_reason
+        elif preserve_working_intent and sig:
+            sig = dict(sig)
+            meta = dict(sig.get("metadata") or {})
+            meta["entry_should_wait"] = True
+            meta["entry_wait_reason"] = entry_wait_reason
+            sig["metadata"] = meta
 
         # 将认知思维轨迹附到 metadata
         if sig and sig.get("metadata") is not None:

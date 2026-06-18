@@ -36,11 +36,11 @@ def test_env_random_steps():
     )
     assert env.action_space.n == 3
     obs, _ = env.reset()
-    assert obs.shape == (74,)
+    assert obs.shape == (86,)
     for _ in range(200):
         action = env.action_space.sample()
         obs, reward, done, trunc, _ = env.step(action)
-        assert obs.shape == (74,)
+        assert obs.shape == (86,)
         assert np.isfinite(reward)
         if done:
             break

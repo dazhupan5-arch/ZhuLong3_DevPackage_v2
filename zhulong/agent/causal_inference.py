@@ -111,8 +111,11 @@ class CausalInference:
         struct_features: np.ndarray | None = None,
         *,
         event_surprise: float = 0.0,
+        macro_features: np.ndarray | list | None = None,
     ) -> float:
-        """从结构特征或事件惊喜度估计宏观冲击。"""
+        """从结构特征、事件惊喜度或 C# 8 维宏观向量估计宏观冲击。"""
+        if macro_features is not None:
+            return self.macro_shock_from_features(macro_features)
         if abs(event_surprise) > 1e-9:
             return float(event_surprise)
         if struct_features is not None and struct_features.size > 0:
@@ -120,6 +123,18 @@ class CausalInference:
             trend = float(struct_features.reshape(-1)[0])
             return float(np.clip(0.6 * trend + 0.4 * vol, -3.0, 3.0))
         return 0.0
+
+    def macro_shock_from_features(self, features: np.ndarray | list) -> float:
+        """C# MacroFeatureBuilder 8 维 → 宏观冲击标量。"""
+        f = np.asarray(features, dtype=np.float64).reshape(-1)
+        if f.size < 8:
+            return 0.0
+        shock = float(f[3]) * float(f[1]) * 2.0 - 1.0
+        shock += (float(f[5]) - 0.5) * 0.6
+        shock += (float(f[7]) - 0.5) * 0.4
+        if float(f[0]) < 0.15:
+            shock += 0.25
+        return float(np.clip(shock, -3.0, 3.0))
 
 
 class CounterfactualPredictor:

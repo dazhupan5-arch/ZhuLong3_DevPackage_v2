@@ -16,7 +16,7 @@ def test_fuse_knowledge_causal_bullish():
     fused = fuse_knowledge_with_causal(probs, causal_pred=0.5, weight_causal=0.3)
     assert fused.shape == (1, 3)
     assert abs(fused.sum() - 1.0) < 1e-5
-    assert fused[0, 1] > probs[0, 1]
+    assert fused[0, 2] > probs[0, 2]
 
 
 def test_causal_inference_heuristic_without_coef():

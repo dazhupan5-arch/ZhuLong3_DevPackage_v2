@@ -57,7 +57,13 @@ class RlAgent:
             self._model = PPO.load(p, device="cpu")
             logger.info("RL 模型已加载 %s", p)
         except Exception as ex:
-            logger.warning("RL 加载失败: %s", ex)
+            err = str(ex)
+            if "numpy._core" in err or "_core.numeric" in err:
+                logger.warning(
+                    "RL 加载失败（numpy 版本与权重不匹配，需 numpy>=2 并重装依赖）: %s", ex
+                )
+            else:
+                logger.warning("RL 加载失败: %s", ex)
             self._model = None
 
     @property

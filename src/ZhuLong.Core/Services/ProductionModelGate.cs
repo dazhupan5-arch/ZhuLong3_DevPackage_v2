@@ -23,6 +23,14 @@ public static class ProductionModelGate
 
     public static CheckResult Check(AppSettings settings)
     {
+        if (settings.TradingAgent?.Enabled == true)
+            return AgentStackModelGate.Check(settings);
+
+        return CheckLegacyXgb(settings);
+    }
+
+    private static CheckResult CheckLegacyXgb(AppSettings settings)
+    {
         var symbols = ModelConfigSync.ResolveSymbols(settings);
         var ready = new List<string>();
         var pending = new List<string>();

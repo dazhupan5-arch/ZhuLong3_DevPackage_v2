@@ -10,8 +10,36 @@ from typing import Any
 import pandas as pd
 
 from zhulong.engine.runtime_config import apply_runtime_primary, bind_engine_primary
+from zhulong.utils.json_safe import json_safe
+from zhulong.utils.paths import resolve_agent_config_path
 
 logger = logging.getLogger(__name__)
+
+_engine_cache: dict[str, "AgentEngine"] = {}
+
+
+def get_or_create_engine(req: dict[str, Any], root: Path) -> tuple["AgentEngine", str | None]:
+    cfg_rel = req.get("config_path") or "config/config_agent.json"
+    cfg_path = resolve_agent_config_path(str(cfg_rel), root)
+    config = load_agent_config(cfg_path, root=root)
+    merged, runtime_primary = merge_agent_runtime(config, req)
+    key = str(cfg_path.resolve())
+    engine = _engine_cache.get(key)
+    if engine is None:
+        engine = AgentEngine(merged, root=root)
+        _engine_cache[key] = engine
+    elif runtime_primary:
+        bind_engine_primary(engine, runtime_primary)
+    return engine, runtime_primary
+
+
+def warm_engine_cache(req: dict[str, Any], root: Path) -> AgentEngine:
+    """预创建 AgentEngine 并热起全栈（Horizon/KN2/RL），避免首 tick 冷加载。"""
+    engine, _ = get_or_create_engine(req, root)
+    agent = engine.agent
+    agent._ensure_kn2()
+    agent._ensure_rl()
+    return engine
 
 
 def load_agent_config(path: str | Path, root: Path | None = None) -> dict[str, Any]:
@@ -47,6 +75,9 @@ class AgentEngine:
     def record_closed_trade(self, symbol: str, pnl_r: float) -> None:
         self.agent.record_closed_trade(symbol, pnl_r)
 
+    def record_signal_emitted(self, symbol: str) -> None:
+        self.agent.record_signal_emitted(symbol)
+
 
 def merge_agent_runtime(config: dict[str, Any], req: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     cfg = dict(config)
@@ -58,15 +89,56 @@ def merge_agent_runtime(config: dict[str, Any], req: dict[str, Any]) -> tuple[di
     return cfg, runtime_primary
 
 
+def record_agent_closed_trade(
+    symbol: str,
+    pnl_r: float,
+    req: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    cfg_rel = req.get("config_path") or "config/config_agent.json"
+    cfg_path = resolve_agent_config_path(str(cfg_rel), root)
+    config = load_agent_config(cfg_path, root=root)
+    if not config.get("enabled", True):
+        return {"ok": False, "error": "agent_disabled_in_config"}
+    try:
+        engine, runtime_primary = get_or_create_engine(req, root)
+        if runtime_primary:
+            bind_engine_primary(engine, runtime_primary)
+        engine.record_closed_trade(symbol.strip().upper(), float(pnl_r))
+        return {"ok": True, "agent": True, "symbol": symbol, "pnl_r": float(pnl_r)}
+    except Exception as ex:
+        logger.exception("record_closed_trade 失败")
+        return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+
+def record_agent_signal_emitted(
+    symbol: str,
+    req: dict[str, Any],
+    root: Path,
+) -> dict[str, Any]:
+    cfg_rel = req.get("config_path") or "config/config_agent.json"
+    cfg_path = resolve_agent_config_path(str(cfg_rel), root)
+    config = load_agent_config(cfg_path, root=root)
+    if not config.get("enabled", True):
+        return {"ok": False, "error": "agent_disabled_in_config"}
+    try:
+        engine, runtime_primary = get_or_create_engine(req, root)
+        if runtime_primary:
+            bind_engine_primary(engine, runtime_primary)
+        engine.record_signal_emitted(symbol.strip().upper())
+        return {"ok": True, "agent": True, "symbol": symbol}
+    except Exception as ex:
+        logger.exception("record_signal_emitted 失败")
+        return {"ok": False, "error": f"{type(ex).__name__}: {ex}"}
+
+
 def run_agent_tick(
     m5_by_symbol: dict[str, pd.DataFrame],
     req: dict[str, Any],
     root: Path,
 ) -> dict[str, Any]:
     cfg_rel = req.get("config_path") or "config/config_agent.json"
-    cfg_path = Path(cfg_rel)
-    if not cfg_path.is_absolute():
-        cfg_path = root / cfg_path
+    cfg_path = resolve_agent_config_path(str(cfg_rel), root)
     config = load_agent_config(cfg_path, root=root)
     if not config.get("enabled", True):
         reason = "agent_disabled"
@@ -76,14 +148,22 @@ def run_agent_tick(
             reason = "agent_disabled_in_config"
         return {"ok": True, "agent": False, "results": [], "reason": reason, "config_path": str(cfg_path)}
 
+    if bool(req.get("macro_silence")):
+        symbols = req.get("symbols") or list(m5_by_symbol.keys())
+        return {
+            "ok": True,
+            "agent": True,
+            "results": [
+                {"symbol": str(s), "skipped": True, "reason": "macro_silence", "strategy": "rl_agent"}
+                for s in symbols
+            ],
+        }
+
     symbols = req.get("symbols") or list(m5_by_symbol.keys())
     try:
-        merged, runtime_primary = merge_agent_runtime(config, req)
-        engine = AgentEngine(merged, root=root)
-        if runtime_primary:
-            bind_engine_primary(engine, runtime_primary)
+        engine, runtime_primary = get_or_create_engine(req, root)
 
-        account = merged.get("_runtime_account") or req.get("account") or {}
+        account = req.get("account") or {}
         ticks = req.get("ticks_by_symbol") or {}
         positions = req.get("open_positions") or []
         if ticks:
@@ -94,6 +174,9 @@ def run_agent_tick(
             account["_m5_includes_forming"] = bool(req.get("m5_includes_forming", True))
         if req.get("decision_bar_unix"):
             account["_decision_bar_unix"] = int(req["decision_bar_unix"])
+        macro_feats = req.get("macro_features")
+        if macro_feats:
+            account["_macro_features"] = macro_feats
         results = engine.tick_symbols(m5_by_symbol, symbols, account)
         if not results:
             return {
@@ -101,12 +184,15 @@ def run_agent_tick(
                 "agent": True,
                 "error": f"agent_empty_results primary={engine.primary_symbol} symbols={symbols}",
             }
-        return {
+        safe_results = [json_safe(r) if isinstance(r, dict) else json_safe(r) for r in results]
+        skipped_only = all(isinstance(r, dict) and r.get("skipped") for r in safe_results)
+        return json_safe({
             "ok": True,
             "agent": True,
             "primary_symbol": runtime_primary or engine.primary_symbol,
-            "results": results,
-        }
+            "results": safe_results,
+            "skipped_only": skipped_only,
+        })
     except Exception as ex:
         logger.exception("智能体 tick 失败")
         return {"ok": False, "agent": False, "error": f"{type(ex).__name__}: {ex}"}

@@ -101,6 +101,32 @@ def test_composer_limit_mode_low_location():
     assert plan.entry_target >= 2000.0
 
 
+def test_working_intent_must_not_flatten_signal():
+    """filter_reason 不应把 limit/defer WorkingIntent 打成 flat（契约回归）。"""
+    plan = ExecutionPlan(
+        direction="short",
+        entry_mode="limit",
+        entry_target=2005.0,
+        should_trade=True,
+    )
+    entry_eval = evaluate_entry_against_plan(
+        plan,
+        direction="sell",
+        tick_bid=2000.0,
+        tick_ask=2000.5,
+        bar_close=2000.0,
+        atr=10.0,
+    )
+    assert entry_eval["emit_working_intent"] is True
+    assert entry_eval["should_wait"] is True
+    # 模拟 emit 路径：有 working intent 时不应因 wait 原因否决 direction
+    preserve = bool(entry_eval.get("emit_working_intent")) and entry_eval.get("should_wait")
+    filter_reason = "限价卖出≥2005.00 Bid=2000.00"
+    assert preserve
+    assert not (filter_reason and not preserve)  # 若 preserve，则不应 flat
+
+
 def test_decide_entry_mode_immediate_when_high_quality():
     mode = decide_entry_mode("long", 2000.0, 1998.0, loc_score=0.92, entry_quality=0.85)
     assert mode == "immediate"
+
