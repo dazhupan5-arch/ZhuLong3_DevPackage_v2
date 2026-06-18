@@ -8,7 +8,11 @@
     git lfs pull
     powershell -ExecutionPolicy Bypass -File scripts/train_usoil_v16_gpu_remote.ps1 -InstallDeps
 
-  开发机需先完成数据准备并 push LFS:
+  默认会先跑 scripts/clean_usoil_v16_remote.ps1（清洗 + 结构特征 + location NPZ）。
+  若 NPZ 已就绪可加 -SkipPrepare 跳过。
+
+  开发机也可单独跑:
+    powershell -File scripts/clean_usoil_v16_remote.ps1
     powershell -File scripts/prepare_usoil_v16_data.ps1
 
 .PARAMETER InstallDeps
@@ -20,8 +24,14 @@
 .PARAMETER SkipKn2
   跳过 KN2 训练
 
-.PARAMETER SkipRl
-  跳过 PPO 训练
+.PARAMETER SkipPrepare
+  跳过数据清洗/NPZ 准备（已有 location NPZ 时）
+
+.PARAMETER PrepareOnly
+  仅清洗 + 准备 NPZ，不训练
+
+.PARAMETER PrepareJobs
+  结构特征并行度（传给 clean_usoil_v16_remote.ps1）
 
 .EXAMPLE
   powershell -ExecutionPolicy Bypass -File scripts/train_usoil_v16_gpu_remote.ps1 -InstallDeps
@@ -29,6 +39,9 @@
 [CmdletBinding()]
 param(
     [switch]$InstallDeps,
+    [switch]$SkipPrepare,
+    [switch]$PrepareOnly,
+    [int]$PrepareJobs = 1,
     [switch]$SkipHorizon,
     [switch]$SkipKn2,
     [switch]$SkipRl,
@@ -70,6 +83,21 @@ else:
     raise SystemExit('CUDA 不可用：请 -InstallDeps 或安装 cu124 PyTorch')
 "@
 
+if (-not $SkipPrepare) {
+    if (-not (Test-Path $HorizonNpz)) {
+        Write-Step "数据准备 (clean + struct + location NPZ)"
+        & (Join-Path $Root "scripts\clean_usoil_v16_remote.ps1") -Jobs $PrepareJobs
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    } else {
+        Write-Host "已有 $HorizonNpz，跳过数据准备（需重跑请加 -FullRebuild 到 clean_usoil_v16_remote.ps1 或删 NPZ）" -ForegroundColor Gray
+    }
+}
+
+if ($PrepareOnly) {
+    Write-Host "PrepareOnly：数据准备完成，未启动 GPU 训练。" -ForegroundColor Green
+    exit 0
+}
+
 if (-not $SkipDataCheck) {
     Write-Step "数据校验 (git lfs)"
     if (-not (Test-Path $HorizonNpz)) {
@@ -77,9 +105,11 @@ if (-not $SkipDataCheck) {
 
 缺少: $HorizonNpz
 
-开发机生成并 push:
-  powershell -File scripts/prepare_usoil_v16_data.ps1
-  git lfs push origin main
+训练机先清洗:
+  powershell -File scripts/clean_usoil_v16_remote.ps1
+
+或一键（含清洗）:
+  powershell -File scripts/train_usoil_v16_gpu_remote.ps1 -InstallDeps
 
 "@ -ForegroundColor Yellow
         exit 1
