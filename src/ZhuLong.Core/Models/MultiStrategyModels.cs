@@ -16,6 +16,10 @@ public sealed class MultiStrategyTickResult
     public string? ExitReason { get; init; }
     public double AiSlPrice { get; init; }
     public double AiTpPrice { get; init; }
+    /// <summary>M5 智能体 trail 模式：hold / run / tighten。</summary>
+    public string? TrailMode { get; init; }
+    public double SuggestedTrailingSl { get; init; }
+    public string? PositionMgmtReason { get; init; }
     public string? CognitionRegime { get; init; }
     public double CognitionRegimeConfidence { get; init; }
     /// <summary>RL PPO 原始动作（认知否决时仍记录）。</summary>
@@ -31,9 +35,13 @@ public sealed class MultiStrategyTickResult
     public double HorizonConfidence { get; init; }
     public double HorizonMinConfidence { get; init; }
     public bool Kn2ShouldTrade { get; init; }
+    public bool Kn2Advisory { get; init; }
     public string? Kn2Action { get; init; }
     public double Kn2Confidence { get; init; }
     public bool Kn2ShadowMode { get; init; }
+    /// <summary>Python draw_payload JSON（优先用于图表绘制）。</summary>
+    public string? DrawPayloadJson { get; init; }
+    public string? AttributionJson { get; init; }
 }
 
 public sealed class MultiStrategySignalPayload

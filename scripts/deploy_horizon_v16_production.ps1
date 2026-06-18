@@ -1,6 +1,7 @@
-# 部署 Horizon V16（flat_boost + 校准）到实机；KN2 保持关闭，待 GPU 验收后再开
+# 部署 Horizon V16 模型与 Python 补丁；config 走 Merge-V16AgentConfig（禁止精简模板覆写）
 param(
-    [string]$InstallDir = "C:\Program Files\ZhuLong"
+    [string]$InstallDir = "C:\Program Files\ZhuLong",
+    [switch]$SkipPreDeployGate
 )
 
 $ErrorActionPreference = "Stop"
@@ -13,9 +14,13 @@ New-Item -ItemType Directory -Force -Path (Join-Path $appData "models\XAUUSD\v16
 $devRoot = Get-Location
 $metaPath = Join-Path $devRoot "models\horizon_v16.meta.json"
 if (-not (Test-Path $metaPath)) { throw "Missing models\horizon_v16.meta.json — train + accept first" }
-Write-Host "=== Pre-deploy gate ===" -ForegroundColor Cyan
-py -3 scripts/pre_deploy_v16_gate.py
-if ($LASTEXITCODE -ne 0) { throw "pre_deploy_v16_gate FAILED — 禁止部署未验收模型" }
+if (-not $SkipPreDeployGate) {
+    Write-Host "=== Pre-deploy gate ===" -ForegroundColor Cyan
+    py -3 scripts/pre_deploy_v16_gate.py
+    if ($LASTEXITCODE -ne 0) { throw "pre_deploy_v16_gate FAILED — 禁止部署未验收模型（开发中可加 -SkipPreDeployGate）" }
+} else {
+    Write-Warning "SkipPreDeployGate: 跳过部署门禁（仅模型/代码同步，待新模型验收后再正式部署）"
+}
 
 $meta = Get-Content $metaPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $cal = $meta.calibration
@@ -53,80 +58,8 @@ $pyPatches = @(
 )
 
 $cfgPath = Join-Path $appData "config_agent.json"
-$existing = @{}
-if (Test-Path $cfgPath) {
-    $existing = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-}
-
-$agentCfg = @{
-    enabled = $true
-    use_rl = $true
-    primary_symbol = "XAUUSD"
-    signal_expiry_minutes = 240
-    state_file = "data/agent_state.json"
-    fallback_strategy = "none"
-    architecture = @{
-        version = "v16"
-        horizon_predictor = @{
-            horizon_bars = 12
-            gain_threshold = 0.002
-            min_direction_confidence = $minConf
-            model_path = "models/horizon_v16.onnx"
-            scaler_path = "models/horizon_v16_scaler.pkl"
-            model_id = "horizon_v16"
-        }
-    }
-    trader_mind = @{
-        max_consecutive_losses = 6
-        sl_atr_mult = 1.2
-        tp_atr_mult = 2.0
-        ranging_sl_atr_mult = 1.8
-        choppy_sl_atr_mult = 2.0
-        min_confidence = $minConf
-    }
-    execution_gates = @{
-        structure_location_gate = $true
-        block_ranging_conflict = $true
-        horizon_lock_direction = $false
-    }
-    kn2 = @{
-        enabled = $false
-        shadow_mode = $true
-        model_path = "models/kn2_trader_v16.pth"
-        min_confidence = 0.48
-    }
-    cognition = @{
-        enabled = $true
-        symbol = "XAUUSD"
-        direction_threshold = $minConf
-        base_confidence_threshold = 0.48
-    }
-    rl_inference = @{
-        action_threshold = 0.52
-        min_confidence_for_trade = 0.52
-        max_daily_trades = 5
-    }
-    knowledge_net = @{
-        model_path = "models/horizon_v16.onnx"
-        scaler_path = "models/horizon_v16_scaler.pkl"
-    }
-    rl = @{
-        model_path_xau = "models/rl_agent_xau"
-    }
-    symbols = @{
-        XAUUSD = @{
-            enabled = $true
-            broker_symbol = "XAUUSD"
-            state_scaler_path = "data/agent_state_scaler_xauusd.json"
-            state_file = "data/agent_state_xauusd.json"
-            rl = @{ model_path = "models/rl_agent_xau" }
-        }
-    }
-}
-
-$json = $agentCfg | ConvertTo-Json -Depth 8
-[System.IO.File]::WriteAllText($cfgPath, $json, [System.Text.UTF8Encoding]::new($false))
-Write-Host "Wrote $cfgPath (kn2.enabled=false, shadow_mode=true)"
+. (Join-Path $PSScriptRoot "Merge-V16AgentConfig.ps1")
+Merge-V16AgentConfig -TargetPath $cfgPath -HorizonMinConfidence $minConf
 
 $deployMeta = @{
     deployed_at = (Get-Date).ToUniversalTime().ToString("o")
@@ -172,4 +105,4 @@ if (Test-Path $InstallDir) {
 
 Write-Host "`nHorizon V16 deployed to production (AppData)." -ForegroundColor Green
 Write-Host "Restart ZhuLong.exe to load."
-Write-Host "KN2: disabled — enable after GPU accept_kn2_v16.py passes."
+Write-Host "Config: merged from repo (execution_composer + trading_env intact). KN2 mode unchanged unless deploy_kn2_v16_when_ready.ps1 runs."

@@ -3,7 +3,7 @@
 import sqlite3
 from pathlib import Path
 
-DB = Path(r"C:\Users\Administrator\AppData\Roaming\ZhuLong\trading.db")
+DB = Path.home() / "AppData" / "Roaming" / "ZhuLong" / "trading.db"
 
 def main() -> None:
     if not DB.exists():
@@ -17,9 +17,12 @@ def main() -> None:
     print("TABLES", tables)
 
     if "signals" in tables:
+        cur.execute("PRAGMA table_info(signals)")
+        sig_cols = {r[1] for r in cur.fetchall()}
+        order_col = "created_at" if "created_at" in sig_cols else "signal_id"
         cur.execute(
-            "SELECT signal_id, symbol, direction, status, created_at "
-            "FROM signals ORDER BY created_at DESC LIMIT 20"
+            f"SELECT signal_id, symbol, direction, status, {order_col} "
+            f"FROM signals ORDER BY {order_col} DESC LIMIT 20"
         )
         print("\n=== RECENT SIGNALS ===")
         for r in cur.fetchall():
@@ -53,10 +56,17 @@ def main() -> None:
         print("\nNO trades TABLE")
 
     if "position_events" in tables:
-        cur.execute(
-            "SELECT signal_id, event_type, created_at FROM position_events "
-            "ORDER BY created_at DESC LIMIT 10"
-        )
+        cur.execute("PRAGMA table_info(position_events)")
+        cols = {r[1] for r in cur.fetchall()}
+        if "created_at" in cols:
+            cur.execute(
+                "SELECT signal_id, event_type, created_at FROM position_events "
+                "ORDER BY created_at DESC LIMIT 10"
+            )
+        else:
+            cur.execute(
+                "SELECT signal_id, event_type FROM position_events LIMIT 10"
+            )
         print("\n=== POSITION EVENTS ===")
         for r in cur.fetchall():
             print(r)

@@ -1,7 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ZhuLong.Core;
-using ZhuLong.Core;
 using ZhuLong.Core.Configuration;
 using ZhuLong.Core.Data;
 using ZhuLong.Core.Macro;
@@ -59,6 +58,7 @@ public sealed class MacroCalendarService : IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
+        MacroBundledDataSync.SyncMacroEventsCsvFromInstall(_logger);
         await EnsureMacroTableAsync(ct);
         await RefreshCalendarAsync(ct);
         StartDailyRefreshLoop();
@@ -193,7 +193,7 @@ public sealed class MacroCalendarService : IAsyncDisposable
         {
             db.MacroEvents.Add(new MacroEventEntity
             {
-                EventTimeUnix = new DateTimeOffset(e.EventTime).ToUnixTimeSeconds(),
+                EventTimeUnix = ToBeijingUnix(e.EventTime),
                 EventName = e.EventName,
                 Impact = e.Impact,
                 Currency = e.Currency,
@@ -236,6 +236,38 @@ public sealed class MacroCalendarService : IAsyncDisposable
             : Path.IsPathRooted(configured)
                 ? configured
                 : Path.Combine(AppPaths.WritableDataDir, Path.GetFileName(configured.Replace('/', Path.DirectorySeparatorChar)));
+
+    private static long ToBeijingUnix(DateTime beijingWallClock)
+    {
+        var offset = ChinaTime.Zone.GetUtcOffset(
+            DateTime.SpecifyKind(beijingWallClock, DateTimeKind.Unspecified));
+        return new DateTimeOffset(beijingWallClock, offset).ToUnixTimeSeconds();
+    }
+
+    /// <summary>距下一高影响事件 &lt;= hours 时写一条运行日志（每事件仅提醒一次）。</summary>
+    public void TryLogUpcomingReminder(Action<string> log, double hours = 12.0)
+    {
+        var evt = GetNextHighImpactEvent();
+        if (evt is null) return;
+        var until = evt.EventTime - ChinaTime.ToBeijing(DateTimeOffset.UtcNow).DateTime;
+        if (until.TotalHours > hours || until.TotalHours < 0) return;
+        var key = $"{evt.EventName}|{evt.EventTime:yyyyMMddHHmm}";
+        lock (_lock)
+        {
+            if (_remindedKeys.Contains(key)) return;
+            _remindedKeys.Add(key);
+        }
+        log($"宏观重要事件提醒：{evt.EventName}（{evt.Currency}）北京时间 {evt.EventTime:yyyy-MM-dd HH:mm}，约 {FormatHours(until.TotalHours)} 后发布；静默窗口内将暂停新开仓信号");
+    }
+
+    private readonly HashSet<string> _remindedKeys = new(StringComparer.Ordinal);
+
+    private static string FormatHours(double h)
+    {
+        if (h < 1) return $"{(int)(h * 60)} 分钟";
+        if (h < 24) return $"{h:F1} 小时";
+        return $"{h / 24:F1} 天";
+    }
 
     public async ValueTask DisposeAsync()
     {

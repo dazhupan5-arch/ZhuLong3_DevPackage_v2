@@ -30,6 +30,9 @@ public static class PythonExecutableResolver
             var cached = PythonRuntime.ReadAppDataCache("python_exe.txt");
             if (!string.IsNullOrEmpty(cached) && File.Exists(cached))
                 return Path.GetFullPath(cached);
+
+            if (PythonRuntime.TryResolveBundled(out var bundledExe, out _))
+                return Path.GetFullPath(bundledExe!);
         }
 
         var viaWhere = TryWhereOnPath(c);

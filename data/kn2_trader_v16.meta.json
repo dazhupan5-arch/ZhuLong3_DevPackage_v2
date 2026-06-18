@@ -1,0 +1,12 @@
+{
+  "hidden_dim": 256,
+  "num_layers": 2,
+  "embed_dim": 64,
+  "num_actions": 6,
+  "market_dim": 65,
+  "pos_dim": 6,
+  "architecture": "kn2_v16",
+  "val_loss": 0.8647373218214913,
+  "scenario_trained": false,
+  "scenario_horizons": []
+}

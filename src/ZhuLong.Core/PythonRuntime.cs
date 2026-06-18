@@ -1,8 +1,9 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace ZhuLong.Core;
 
-/// <summary>本机 Python 3 路径解析（不捆绑 python_runtime）。</summary>
+/// <summary>解析 Python：优先本机 Python 3.10+，开发/旧包可回退安装目录 python_runtime。</summary>
 public static class PythonRuntime
 {
     private static string? _cachedExe;
@@ -24,6 +25,20 @@ public static class PythonRuntime
             return _cachedExe = cached;
 
         var discovered = DiscoverViaLauncher();
+        if (discovered.exe is not null)
+            return _cachedExe = discovered.exe;
+
+        if (TryResolveBundled(out var bundledExe, out var bundledDll))
+        {
+            WriteAppDataCache("python_exe.txt", bundledExe!);
+            WriteAppDataCache("python_dll.txt", bundledDll!);
+            WriteAppDataCache("python_bundled.txt", "1");
+            _cachedExe = bundledExe;
+            _cachedDll = bundledDll;
+            Environment.SetEnvironmentVariable("PYTHONNET_PYDLL", bundledDll);
+            return bundledExe!;
+        }
+
         return _cachedExe = discovered.exe ?? "python";
     }
 
@@ -36,10 +51,65 @@ public static class PythonRuntime
 
         var result = DiscoverViaLauncher();
         if (result.exe is not null)
+        {
             WriteAppDataCache("python_exe.txt", result.exe);
-        if (result.dll is not null)
-            WriteAppDataCache("python_dll.txt", result.dll);
+            if (result.dll is not null)
+                WriteAppDataCache("python_dll.txt", result.dll);
+            return result;
+        }
+
+        if (TryResolveBundled(out var bundledExe, out var bundledDll))
+        {
+            WriteAppDataCache("python_exe.txt", bundledExe!);
+            WriteAppDataCache("python_dll.txt", bundledDll!);
+            WriteAppDataCache("python_bundled.txt", "1");
+            Environment.SetEnvironmentVariable("PYTHONNET_PYDLL", bundledDll);
+            _cachedExe = bundledExe;
+            _cachedDll = bundledDll;
+            return (bundledExe, bundledDll);
+        }
+
         return result;
+    }
+
+    public static bool UsesBundledPython => TryResolveBundled(out _, out _);
+
+    public static bool TryResolveBundled(out string? exe, out string? dll)
+    {
+        exe = null;
+        dll = null;
+        if (!AppPaths.HasBundledPython)
+            return false;
+
+        var exePath = AppPaths.BundledPythonExe;
+        if (!File.Exists(exePath))
+            return false;
+
+        var dllPath = FindBundledPythonDll(AppPaths.BundledPythonDir);
+        if (dllPath is null || !File.Exists(dllPath))
+            return false;
+
+        exe = exePath;
+        dll = dllPath;
+        return true;
+    }
+
+    private static string? FindBundledPythonDll(string rtDir)
+    {
+        try
+        {
+            foreach (var f in Directory.GetFiles(rtDir, "python3*.dll"))
+            {
+                if (Regex.IsMatch(Path.GetFileName(f), @"^python3\d+\.dll$", RegexOptions.IgnoreCase))
+                    return f;
+            }
+        }
+        catch
+        {
+            /* ignore */
+        }
+
+        return null;
     }
 
     private static (string? exe, string? dll) DiscoverViaLauncher()
@@ -86,6 +156,7 @@ public static class PythonRuntime
 
                 WriteAppDataCache("python_exe.txt", resolvedExe);
                 WriteAppDataCache("python_dll.txt", dll);
+                WriteAppDataCache("python_bundled.txt", "0");
                 Environment.SetEnvironmentVariable("PYTHONNET_PYDLL", dll);
                 _cachedExe = resolvedExe;
                 _cachedDll = dll;
@@ -131,6 +202,12 @@ public static class PythonRuntime
             return _cachedDll = cached;
 
         var (_, dll) = DiscoverViaLauncher();
+        if (dll is not null && File.Exists(dll))
+            return _cachedDll = dll;
+
+        if (TryResolveBundled(out _, out var bundledDll))
+            return _cachedDll = bundledDll;
+
         return _cachedDll = dll;
     }
 }

@@ -79,22 +79,99 @@ public static class AgentConfigSync
 
     public static void EnsureUserAgentConfig(AppSettings settings)
     {
-        var userCfg = UserAgentConfigPath;
-        if (File.Exists(userCfg) && new FileInfo(userCfg).Length > 32)
-            return;
+        ForceCopyAgentConfigFromInstall(settings);
+    }
 
+    /// <summary>
+    /// 安装包 config_agent.json 为权威来源；升级后必须覆盖 AppData，避免 legacy 模板残留。
+    /// </summary>
+    public static (bool Ok, bool Changed) ForceCopyAgentConfigFromInstall(AppSettings settings, ILogger? logger = null)
+    {
         var installCfg = ResolveInstallAgentConfigPath(settings);
+        var userCfg = UserAgentConfigPath;
         if (!File.Exists(installCfg))
-            return;
+            return (false, false);
 
         try
         {
             Directory.CreateDirectory(AppPaths.AppDataDir);
+            var changed = !File.Exists(userCfg) || !FilesEqual(installCfg, userCfg);
             File.Copy(installCfg, userCfg, overwrite: true);
+            if (changed)
+                logger?.LogInformation("已从安装目录覆盖 AppData config_agent.json path={Path}", userCfg);
+            return (true, changed);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "覆盖 AppData config_agent.json 失败");
+            return (false, false);
+        }
+    }
+
+    /// <summary>
+    /// 安装版本高于 AppData 时，用安装包 config.json 全覆盖（与安装程序 post_setup 一致）。
+    /// </summary>
+    public static (bool Ok, bool Changed) ForceCopyMainConfigIfInstallUpgraded(ILogger? logger = null)
+    {
+        var installMain = Path.Combine(AppPaths.InstallDir, "config.json");
+        var userMain = Path.Combine(AppPaths.AppDataDir, "config.json");
+        if (!File.Exists(installMain))
+            return (false, false);
+
+        var installVer = ReadConfigAppVersion(installMain);
+        var userVer = File.Exists(userMain) ? ReadConfigAppVersion(userMain) : "";
+        // 仅当 AppData 版本高于安装包时保留用户配置；同版本重装/漂移则覆盖
+        if (!string.IsNullOrWhiteSpace(userVer) &&
+            string.Compare(installVer, userVer, StringComparison.OrdinalIgnoreCase) < 0)
+            return (true, false);
+
+        try
+        {
+            Directory.CreateDirectory(AppPaths.AppDataDir);
+            File.Copy(installMain, userMain, overwrite: true);
+            logger?.LogInformation("安装版本 {InstallVer} 已同步 AppData config.json（原 {UserVer}）",
+                installVer, string.IsNullOrWhiteSpace(userVer) ? "(无)" : userVer);
+            return (true, true);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "覆盖 AppData config.json 失败");
+            return (false, false);
+        }
+    }
+
+    private static string ReadConfigAppVersion(string path)
+    {
+        try
+        {
+            var text = File.ReadAllText(path);
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text[1..];
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("app", out var app) &&
+                app.TryGetProperty("version", out var ver))
+                return ver.GetString() ?? "";
         }
         catch
         {
-            /* 安装目录副本仍可读 */
+            /* ignore */
+        }
+        return "";
+    }
+
+    private static bool FilesEqual(string a, string b)
+    {
+        try
+        {
+            var fa = new FileInfo(a);
+            var fb = new FileInfo(b);
+            if (fa.Length != fb.Length)
+                return false;
+            return File.ReadAllBytes(a).AsSpan().SequenceEqual(File.ReadAllBytes(b));
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -110,8 +187,138 @@ public static class AgentConfigSync
             ? UserAgentConfigPath
             : ResolveAgentConfigPath(settings);
         var (knOk, knChanged) = TrySyncKn1FromInstall(settings, logger);
+        var (rtOk, rtChanged) = TrySyncRuntimeFieldsFromInstall(settings, logger);
         var (enOk, enChanged) = TrySyncEnabled(path, enabled, logger);
-        return (enOk && knOk, enChanged || knChanged);
+        var (exOk, exChanged) = EnforceExclusiveAgentMode(settings, logger);
+        var (expOk, expChanged) = TrySyncSignalExpiry(settings, logger);
+        return (enOk && knOk && rtOk && exOk && expOk, enChanged || knChanged || rtChanged || exChanged || expChanged);
+    }
+
+    /// <summary>智能体开启时关闭 multi_strategy，避免双模式配置误导。</summary>
+    public static (bool Ok, bool Changed) EnforceExclusiveAgentMode(AppSettings settings, ILogger? logger = null)
+    {
+        if (settings.TradingAgent?.Enabled != true)
+            return (true, false);
+        if (settings.MultiStrategy is null)
+            return (true, false);
+        if (!settings.MultiStrategy.Enabled)
+            return (true, false);
+        settings.MultiStrategy.Enabled = false;
+        try
+        {
+            settings.Save(AppPaths.ConfigPath);
+            logger?.LogInformation("智能体模式已开启，已自动关闭 multi_strategy.enabled");
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "写入 config.json multi_strategy 失败");
+        }
+        return (true, true);
+    }
+
+    /// <summary>将 config.json signal_expiry_minutes 同步到 config_agent.json。</summary>
+    public static (bool Ok, bool Changed) TrySyncSignalExpiry(AppSettings settings, ILogger? logger = null)
+    {
+        var userCfg = UserAgentConfigPath;
+        if (!File.Exists(userCfg))
+            return (false, false);
+        var mins = settings.SignalFilters?.SignalExpiryMinutes ?? 240;
+        if (mins <= 0)
+            return (true, false);
+        try
+        {
+            var text = File.ReadAllText(userCfg);
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text[1..];
+            var node = JsonNode.Parse(text);
+            if (node is not JsonObject root)
+                return (false, false);
+            if (root.TryGetPropertyValue("signal_expiry_minutes", out var cur) && cur is JsonValue jv &&
+                jv.TryGetValue<int>(out var curMins) && curMins == mins)
+                return (true, false);
+            root["signal_expiry_minutes"] = mins;
+            File.WriteAllText(userCfg, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            logger?.LogInformation("已同步 config_agent signal_expiry_minutes={Mins}", mins);
+            return (true, true);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "同步 signal_expiry_minutes 失败");
+            return (false, false);
+        }
+    }
+
+    public static int ResolveAgentSignalExpiryMinutes(AppSettings settings, int fallback = 240)
+    {
+        var path = ResolveAgentConfigPath(settings);
+        if (!File.Exists(path))
+            return settings.SignalFilters?.SignalExpiryMinutes ?? fallback;
+        try
+        {
+            var text = File.ReadAllText(path);
+            if (text.Length > 0 && text[0] == '\uFEFF')
+                text = text[1..];
+            using var doc = JsonDocument.Parse(text);
+            if (doc.RootElement.TryGetProperty("signal_expiry_minutes", out var el) &&
+                el.TryGetInt32(out var mins) && mins > 0)
+                return mins;
+        }
+        catch
+        {
+            /* fallback */
+        }
+        return settings.SignalFilters?.SignalExpiryMinutes ?? fallback;
+    }
+
+    /// <summary>
+    /// 将安装包 V16 运行时关键字段合并到 AppData config_agent.json。
+    /// </summary>
+    public static (bool Ok, bool Changed) TrySyncRuntimeFieldsFromInstall(AppSettings settings, ILogger? logger = null)
+    {
+        var installCfg = ResolveInstallAgentConfigPath(settings);
+        var userCfg = UserAgentConfigPath;
+        if (!File.Exists(installCfg) || !File.Exists(userCfg))
+            return (false, false);
+
+        try
+        {
+            var installRoot = JsonNode.Parse(File.ReadAllText(installCfg)) as JsonObject;
+            var userRoot = JsonNode.Parse(File.ReadAllText(userCfg)) as JsonObject;
+            if (installRoot is null || userRoot is null)
+                return (false, false);
+
+            var changed = false;
+            foreach (var key in new[]
+                     {
+                         "architecture", "causal", "counterfactual", "execution_gates", "execution_composer",
+                         "trader_mind", "rl_inference", "trading_env",
+                     })
+            {
+                if (!installRoot.TryGetPropertyValue(key, out var installVal) || installVal is null)
+                    continue;
+                if (!JsonNodesEqual(userRoot[key], installVal))
+                {
+                    userRoot[key] = installVal.DeepClone();
+                    changed = true;
+                }
+            }
+
+            changed |= SyncKn2ContractFromInstall(installRoot, userRoot);
+
+            if (!changed)
+                return (true, false);
+
+            File.WriteAllText(userCfg, userRoot.ToJsonString(new JsonSerializerOptions { WriteIndented = true }),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            logger?.LogInformation("已同步 config_agent.json 运行时字段 path={Path}", userCfg);
+            return (true, true);
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "同步 config_agent.json 运行时字段失败");
+            return (false, false);
+        }
     }
 
     /// <summary>
@@ -147,10 +354,15 @@ public static class AgentConfigSync
                 var userKn2 = userRoot["kn2"] as JsonObject ?? new JsonObject();
                 if (userRoot["kn2"] is null)
                     userRoot["kn2"] = userKn2;
-                if (!JsonNodesEqual(userKn2["enabled"], kn2Enabled))
+
+                // 只从安装包「启用」KN2，禁止用旧包 false 覆盖用户 LIVE
+                if (kn2Enabled is JsonValue kv && kv.TryGetValue<bool>(out var installOn) && installOn)
                 {
-                    userKn2["enabled"] = kn2Enabled?.DeepClone();
-                    changed = true;
+                    if (!JsonNodesEqual(userKn2["enabled"], kn2Enabled))
+                    {
+                        userKn2["enabled"] = kn2Enabled.DeepClone();
+                        changed = true;
+                    }
                 }
             }
 
@@ -180,6 +392,51 @@ public static class AgentConfigSync
             logger?.LogWarning(ex, "同步 config_agent.json KN1 字段失败");
             return (false, false);
         }
+    }
+
+    private static bool SyncKn2ContractFromInstall(JsonObject installRoot, JsonObject userRoot)
+    {
+        if (!installRoot.TryGetPropertyValue("kn2", out var installKn2) || installKn2 is not JsonObject installKn2Obj)
+            return false;
+
+        var userKn2 = userRoot["kn2"] as JsonObject ?? new JsonObject();
+        if (userRoot["kn2"] is null)
+            userRoot["kn2"] = userKn2;
+
+        var wasLive = userKn2.TryGetPropertyValue("enabled", out var userEnabled) &&
+                      userEnabled is JsonValue uev && uev.TryGetValue<bool>(out var liveOn) && liveOn &&
+                      !(userKn2.TryGetPropertyValue("shadow_mode", out var userShadow) &&
+                        userShadow is JsonValue usv && usv.TryGetValue<bool>(out var shadowOn) && shadowOn);
+
+        var changed = false;
+        foreach (var prop in new[] { "model_path", "min_confidence", "enabled", "shadow_mode" })
+        {
+            if (!installKn2Obj.TryGetPropertyValue(prop, out var installVal))
+                continue;
+            if (wasLive && prop is "enabled" or "shadow_mode")
+                continue;
+            if (!JsonNodesEqual(userKn2[prop], installVal))
+            {
+                userKn2[prop] = installVal?.DeepClone();
+                changed = true;
+            }
+        }
+
+        if (wasLive)
+        {
+            if (userKn2["enabled"] is not JsonValue en || !en.TryGetValue<bool>(out var on) || !on)
+            {
+                userKn2["enabled"] = true;
+                changed = true;
+            }
+            if (userKn2["shadow_mode"] is not JsonValue sm || !sm.TryGetValue<bool>(out var sh) || sh)
+            {
+                userKn2["shadow_mode"] = false;
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     private static bool JsonNodesEqual(JsonNode? a, JsonNode? b)

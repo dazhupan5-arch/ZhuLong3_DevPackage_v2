@@ -18,6 +18,7 @@ public sealed class SignalEntity
     public string Strategy { get; set; } = "";
     public string Status { get; set; } = "pending";
     public string? ParamsSnapshot { get; set; }
+    public string? AttributionJson { get; set; }
     public long CreatedAt { get; set; }
 }
 
@@ -76,6 +77,7 @@ public sealed class ZhuLongDbContext : DbContext
             e.Property(x => x.Strategy).HasColumnName("strategy");
             e.Property(x => x.Status).HasColumnName("status");
             e.Property(x => x.ParamsSnapshot).HasColumnName("params_snapshot");
+            e.Property(x => x.AttributionJson).HasColumnName("attribution_json");
             e.Property(x => x.CreatedAt).HasColumnName("created_at");
         });
 

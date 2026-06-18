@@ -312,7 +312,7 @@ public sealed class Mt5ApiWrapper : IDisposable
     private static void EnsurePythonPath()
     {
         dynamic sys = Py.Import("sys");
-        foreach (var p in new[] { AppPaths.PythonEngineDir, AppPaths.InstallDir })
+        foreach (var p in new[] { AppPaths.PythonEngineDir, AppPaths.InstallDir, AppPaths.AppDataDir })
         {
             if (Directory.Exists(p))
                 sys.path.append(p);

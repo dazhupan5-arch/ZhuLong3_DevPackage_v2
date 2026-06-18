@@ -21,6 +21,8 @@ public sealed class PythonEnvironmentCoordinator
 
     private readonly PythonInferenceService _python;
     private readonly MacroOfflineRefreshService _macroRefresh;
+    private DateTimeOffset _lastAgentValidateFailUtc;
+    private bool _agentEnvRepairAttempted;
 
     public PythonEnvironmentCoordinator(PythonInferenceService python, MacroOfflineRefreshService macroRefresh)
     {
@@ -61,6 +63,43 @@ public sealed class PythonEnvironmentCoordinator
             log("[√] import pyarrow");
         else
             log("[!] import pyarrow（可选，有 imf_vmd.csv 时可跳过）: " + paErr);
+
+        log("");
+        log("—— V16 智能体真实探针（与开机校验相同）——");
+        log("[!] 说明：使用本机 Python 3.10+，安装后请运行 install_python_deps.ps1 或设置页「一键修复环境」");
+        try
+        {
+            var settings = AppSettings.LoadOrCreate(AppPaths.ConfigPath);
+            AgentConfigSync.AlignWithAppSettings(settings);
+            if (AppPaths.HasBundledPython && settings.TradingAgent?.Enabled == true)
+            {
+                var cfg = AgentConfigSync.ResolveAgentConfigPath(settings);
+                if (AgentEnvironmentValidator.TryValidateV16(cfg, PythonRuntime.ResolveExecutable(), out var agentErr))
+                    log("[√] V16 智能体探针通过（内置 Python + Horizon Session）");
+                else
+                {
+                    log("[×] V16 智能体探针失败: " + agentErr);
+                    LogHorizonProbeHints(log, agentErr);
+                }
+            }
+            else if (settings.TradingAgent?.Enabled == true)
+            {
+                var cfg = AgentConfigSync.ResolveAgentConfigPath(settings);
+                if (AgentEnvironmentValidator.TryValidateV16(cfg, pyProbe, out var agentErr))
+                    log("[√] V16 智能体探针通过（Horizon Session + scaler + 模型文件，与 Worker 同路径）");
+                else
+                {
+                    log("[×] V16 智能体探针失败: " + agentErr);
+                    LogHorizonProbeHints(log, agentErr);
+                }
+            }
+            else
+                log("[—] 智能体未启用，跳过 V16 探针");
+        }
+        catch (Exception ex)
+        {
+            log("[×] V16 智能体探针异常: " + ex.Message);
+        }
 
         log(_python.IsReady ? "[√] Python.NET 已加载" : "[!] Python.NET 未加载（连接 MT5 时加载）");
         log("修复脚本: " + ResolveDepsScriptPath());
@@ -155,7 +194,7 @@ public sealed class PythonEnvironmentCoordinator
                 : new List<string>
                 {
                     "-m", "pip", "install", "--prefer-binary",
-                    "torch", "xgboost", "pandas==2.2.3", "pyarrow==17.0.0", "numpy>=1.26,<2",
+                    "torch", "xgboost", "pandas==2.2.3", "pyarrow==17.0.0", "numpy>=2.0,<3",
                     "scikit-learn", "joblib", "MetaTrader5", "fredapi", "requests",
                 };
             var fixCode = await RunPythonAsync(pyExe, fixArgs, AppPaths.InstallDir, log, ct).ConfigureAwait(false);
@@ -433,7 +472,7 @@ public sealed class PythonEnvironmentCoordinator
         if (File.Exists(runtimeReq))
             steps.Add(new[] { "install", "--prefer-binary", "-r", runtimeReq });
         else
-            steps.Add(new[] { "install", "--prefer-binary", "torch", "xgboost", "pandas==2.2.3", "pyarrow==17.0.0", "numpy>=1.26,<2", "scikit-learn", "joblib", "MetaTrader5", "fredapi", "requests" });
+            steps.Add(new[] { "install", "--prefer-binary", "torch", "xgboost", "pandas==2.2.3", "pyarrow==17.0.0", "numpy>=2.0,<3", "scikit-learn", "joblib", "MetaTrader5", "fredapi", "requests" });
 
         steps.Add(new[] { "install", "--prefer-binary", "--upgrade", "MetaTrader5", "fredapi", "requests" });
 
@@ -523,6 +562,20 @@ public sealed class PythonEnvironmentCoordinator
     }
 
     /// <summary>启动/调度前：验证智能体子进程（Python 依赖 + 模型 + 试跑 tick）。</summary>
+    public async Task TryRefreshMacroOnStartupAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            var (ok, msg) = await _macroRefresh.RefreshAllAsync(ct).ConfigureAwait(false);
+            if (!ok)
+                StartupLog.Write("宏观离线刷新: " + msg);
+        }
+        catch (Exception ex)
+        {
+            StartupLog.Write("宏观离线刷新跳过: " + ex.Message);
+        }
+    }
+
     public async Task<bool> EnsureAgentReadyAsync(Action<string> log, CancellationToken ct = default)
     {
         var settings = AppSettings.LoadOrCreate(AppPaths.ConfigPath);
@@ -531,18 +584,206 @@ public sealed class PythonEnvironmentCoordinator
         log("智能体环境校验开始…");
         log("配置文件: " + configPath);
 
-        try
+        if (_agentEnvRepairAttempted &&
+            _lastAgentValidateFailUtc != default &&
+            DateTimeOffset.UtcNow - _lastAgentValidateFailUtc < TimeSpan.FromMinutes(3))
         {
-            await _python.AgentValidateAsync(configPath, ct).ConfigureAwait(false);
-            log("智能体环境校验通过（KnowledgeNet + 子进程 tick 正常）");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            log($"[×] 智能体环境校验失败: {ex.Message}");
-            log("请确认：1) 已安装 Python 3.10+  2) 安装目录运行 install_python_deps.ps1  3) models/knowledge_net.onnx 存在");
             return false;
         }
+
+        for (var attempt = 0; attempt < 2; attempt++)
+        {
+            try
+            {
+                await _python.AgentValidateAsync(configPath, ct).ConfigureAwait(false);
+                log("环境探针通过（Horizon InferenceSession + scaler + 模型文件 + Python 依赖）");
+            }
+            catch (Exception ex)
+            {
+                var msg = ex.Message;
+                log($"[×] 环境探针失败: {msg}");
+                LogHorizonProbeHints(log, msg);
+                if (attempt == 0 && IsRepairableAgentEnvError(msg))
+                {
+                    log("  检测到 Python/ONNX 依赖问题，正在自动修复…");
+                    _agentEnvRepairAttempted = true;
+                    if (await TryAutoRepairAgentEnvAsync(log, ct, msg).ConfigureAwait(false))
+                    {
+                        log("  依赖修复完成，重新校验…");
+                        continue;
+                    }
+
+                    log("  自动修复未完成，请检查网络或以管理员运行 install_python_deps.ps1");
+                }
+
+                _lastAgentValidateFailUtc = DateTimeOffset.UtcNow;
+                return false;
+            }
+
+            try
+            {
+                await _python.AgentWarmupAsync(configPath, ct).ConfigureAwait(false);
+                log("智能体 V16 全栈热加载完成（Horizon InferenceSession + AgentEngine + KN2 + RL）");
+                _lastAgentValidateFailUtc = default;
+                _agentEnvRepairAttempted = false;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                var msg = ex.Message;
+                log($"[×] 全栈热加载失败: {msg}");
+                if (msg.Contains("timeout", StringComparison.OrdinalIgnoreCase) ||
+                    msg.Contains("超时", StringComparison.OrdinalIgnoreCase))
+                {
+                    log("  提示：Horizon/RL 预加载超时（环境探针已通过，不是「未安装 Python」）");
+                    log("  建议：结束残留 python.exe 后重启；或确认 models/ 与 RL 权重可读");
+                }
+                else if (msg.Contains("engine_preload_failed", StringComparison.OrdinalIgnoreCase) ||
+                         msg.Contains("rl_load_failed", StringComparison.OrdinalIgnoreCase))
+                {
+                    log("  提示：Horizon 已通过，RL/torch 加载失败；请运行 install_python_deps.ps1 或一键修复环境");
+                }
+                else if (msg.Contains("horizon_not_ready", StringComparison.OrdinalIgnoreCase))
+                {
+                    LogHorizonProbeHints(log, msg);
+                }
+                else
+                {
+                    log("请确认：1) 无残留 python 子进程  2) 安装目录与 AppData 热更新未冲突");
+                }
+
+                if (attempt == 0 && IsRepairableAgentEnvError(msg))
+                {
+                    log("  检测到可修复依赖问题，正在自动升级…");
+                    _agentEnvRepairAttempted = true;
+                    if (await TryAutoRepairAgentEnvAsync(log, ct, msg).ConfigureAwait(false))
+                    {
+                        log("  依赖修复完成，重新校验…");
+                        continue;
+                    }
+                }
+
+                _lastAgentValidateFailUtc = DateTimeOffset.UtcNow;
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static void LogHorizonProbeHints(Action<string> log, string? msg)
+    {
+        if (string.IsNullOrEmpty(msg))
+            return;
+
+        if (msg.Contains("onnx=", StringComparison.OrdinalIgnoreCase))
+        {
+            var idx = msg.IndexOf("onnx=", StringComparison.OrdinalIgnoreCase);
+            var detail = idx >= 0 ? msg[idx..].Trim() : msg;
+            log("  ONNX 详情: " + detail);
+        }
+
+        if (msg.Contains("horizon_not_ready", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("horizon_onnx", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("InferenceSession", StringComparison.OrdinalIgnoreCase) ||
+            msg.Contains("onnx=", StringComparison.OrdinalIgnoreCase))
+        {
+            log("  提示：模型文件存在但 InferenceSession 创建失败（import onnxruntime 通过 ≠ 可推理）");
+            log("  建议：1) 以管理员运行 install_python_deps.ps1 重装 onnxruntime");
+            log("        2) 安装 VC++ 2015-2022 x64 运行库");
+            log("        3) 删除 %APPDATA%\\ZhuLong\\ZhuLong.PythonEngine 陈旧热更新后重试");
+            log("        4) 运行 scripts\\diagnose_horizon_not_ready.ps1 获取完整诊断");
+        }
+        else if (msg.Contains("missing_python_module", StringComparison.OrdinalIgnoreCase) ||
+                 msg.Contains("python_not_found", StringComparison.OrdinalIgnoreCase) ||
+                 msg.Contains("python_too_old", StringComparison.OrdinalIgnoreCase))
+        {
+            log("请确认：1) Python 3.10+  2) install_python_deps.ps1  3) 设置页 Python 路径正确");
+        }
+        else if (msg.Contains("missing_horizon", StringComparison.OrdinalIgnoreCase))
+        {
+            log("请确认 models/horizon_v16.onnx 与 horizon_v16_scaler.pkl 存在于安装目录或 AppData");
+        }
+    }
+
+    private static bool IsRepairableAgentEnvError(string msg) =>
+        msg.Contains("rl_load_failed", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("rl_warmup", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("rl_import_failed", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("numpy._core", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("numpy_too_old", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("missing_python_module", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("numpy_version_check_failed", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("horizon_not_ready", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("horizon_onnx_load_failed", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("InferenceSession", StringComparison.OrdinalIgnoreCase) ||
+        msg.Contains("onnxruntime", StringComparison.OrdinalIgnoreCase);
+
+    private async Task<bool> TryAutoRepairAgentEnvAsync(Action<string> log, CancellationToken ct, string? triggerMsg = null)
+    {
+        var (exe, dll) = PythonRuntime.DiscoverAndCache(force: true);
+        if (string.IsNullOrEmpty(exe) || !File.Exists(exe))
+        {
+            if (!PythonExecutableResolver.TryResolve("python", out exe, out var resolveErr))
+            {
+                log("  [×] 无法定位 Python: " + resolveErr);
+                return false;
+            }
+        }
+
+        var pyExe = Path.GetFullPath(exe);
+        if (!string.IsNullOrEmpty(dll) && File.Exists(dll))
+            Environment.SetEnvironmentVariable("PYTHONNET_PYDLL", dll);
+
+        log("  使用 Python: " + pyExe);
+
+        var needsOnnx = triggerMsg is not null &&
+            (triggerMsg.Contains("horizon_not_ready", StringComparison.OrdinalIgnoreCase) ||
+             triggerMsg.Contains("InferenceSession", StringComparison.OrdinalIgnoreCase) ||
+             triggerMsg.Contains("onnx=", StringComparison.OrdinalIgnoreCase) ||
+             triggerMsg.Contains("horizon_onnx", StringComparison.OrdinalIgnoreCase));
+        if (needsOnnx)
+        {
+            log("  >>> pip install --force-reinstall onnxruntime …");
+            var onnxCode = await RunPythonAsync(
+                pyExe,
+                new List<string> { "-m", "pip", "install", "--prefer-binary", "--force-reinstall", "onnxruntime" },
+                AppPaths.InstallDir,
+                log,
+                ct).ConfigureAwait(false);
+            if (onnxCode != 0)
+                log("  [!] onnxruntime 重装未完全成功，继续全量修复…");
+            else
+                log("  [√] onnxruntime 已重装");
+        }
+
+        var targeted = new List<string>
+        {
+            "-m", "pip", "install", "--prefer-binary", "--upgrade",
+            "numpy>=2.0,<3.0", "stable-baselines3>=2.2.0", "gymnasium>=0.29.0", "torch>=2.0.0",
+        };
+        log("  >>> pip install --upgrade numpy/stable-baselines3 …");
+        var targetedCode = await RunPythonAsync(pyExe, targeted, AppPaths.InstallDir, log, ct).ConfigureAwait(false);
+        if (targetedCode != 0)
+            log("  [!] 定向 pip 未完全成功，继续全量 requirements_runtime …");
+
+        if (!await RunPipRepairAsync(pyExe, log, ct).ConfigureAwait(false))
+            return false;
+
+        if (!PythonQuickProbe.TryGetNumpyVersion(pyExe, out var npVer, out var npErr))
+        {
+            log("  [×] numpy 仍不可用: " + npErr);
+            return false;
+        }
+
+        if (npVer is null || npVer.Major < 2)
+        {
+            log("  [×] numpy 版本仍 <2: " + npVer);
+            return false;
+        }
+
+        log("  [√] numpy " + npVer);
+        return PythonQuickProbe.TryImportModule(pyExe, "stable_baselines3", out _);
     }
 
     private static string ResolveDepsScriptPath()

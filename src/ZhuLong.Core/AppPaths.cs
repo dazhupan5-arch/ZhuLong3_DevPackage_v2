@@ -69,10 +69,46 @@ public static class AppPaths
         }
     }
 
+    /// <summary>Python 推理 CLI 目录（完整引擎，含 mt5_ops）。始终指向安装目录。</summary>
     public static string PythonEngineDir => Path.Combine(InstallDir, "ZhuLong.PythonEngine");
 
-    /// <summary>遗留目录名；烛龙 V3 不捆绑 Python，仅开发机可能仍存在。</summary>
+    /// <summary>inference_worker.py：常驻智能体 Worker。</summary>
+    public static string InferenceWorkerScriptPath
+    {
+        get
+        {
+            var hot = Path.Combine(AppDataDir, "ZhuLong.PythonEngine", "inference_worker.py");
+            if (File.Exists(hot))
+                return hot;
+            return Path.Combine(PythonEngineDir, "inference_worker.py");
+        }
+    }
+
+    /// <summary>inference_cli.py：AppData 热更新副本优先，否则安装目录。</summary>
+    public static string InferenceCliScriptPath
+    {
+        get
+        {
+            var hot = Path.Combine(AppDataDir, "ZhuLong.PythonEngine", "inference_cli.py");
+            if (File.Exists(hot))
+                return hot;
+            return Path.Combine(PythonEngineDir, "inference_cli.py");
+        }
+    }
+
+    /// <summary>遗留目录名；自包含安装包内置 embeddable Python 3.11。</summary>
     public static string PythonRuntimeDir => Path.Combine(InstallDir, "python_runtime");
+
+    /// <summary>安装包内置 Python 目录（与 PythonRuntimeDir 相同）。</summary>
+    public static string BundledPythonDir => PythonRuntimeDir;
+
+    public static string BundledPythonExe => Path.Combine(BundledPythonDir, "python.exe");
+
+    public static string BundledPythonMarker => Path.Combine(BundledPythonDir, "BUNDLED.json");
+
+    /// <summary>自包含安装包是否携带内置 Python（不依赖本机 py/python）。</summary>
+    public static bool HasBundledPython =>
+        File.Exists(BundledPythonExe) && File.Exists(BundledPythonMarker);
 
     public static string IndicatorsDir => Path.Combine(InstallDir, "indicators");
 

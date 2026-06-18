@@ -27,7 +27,8 @@ public sealed class SignalGeneratorService
             LastRejectReason = $"置信度 {inference.Confidence:F2} < {sf.ProbThreshold:F2}";
             return null;
         }
-        if (sf.MinExpectedReturn > 0 && inference.ExpectedReturn < sf.MinExpectedReturn)
+        if (settings.Model?.UseXgbExpectedReturn == true && sf.MinExpectedReturn > 0 &&
+            inference.ExpectedReturn < sf.MinExpectedReturn)
         {
             LastRejectReason = $"预期收益 {inference.ExpectedReturn:F2} < {sf.MinExpectedReturn:F2}";
             return null;
@@ -97,7 +98,8 @@ public sealed class SignalGeneratorService
 
     public SignalModel? TryGenerateFromStrategySignal(
         AppSettings settings,
-        MultiStrategySignalPayload payload)
+        MultiStrategySignalPayload payload,
+        string? attributionJson = null)
     {
         LastRejectReason = null;
         var sf = settings.SignalFilters ?? new AppSettings.SignalFilterSettings();
@@ -135,7 +137,7 @@ public sealed class SignalGeneratorService
             : payload.SignalId;
 
         return BuildSignal(settings, payload.Symbol, dir, payload.Entry, payload.Sl, payload.Tp,
-            payload.Confidence, 0, signalId, payload.Strategy, sf);
+            payload.Confidence, 0, signalId, payload.Strategy, sf, attributionJson);
     }
 
     private SignalModel BuildSignal(
@@ -149,7 +151,8 @@ public sealed class SignalGeneratorService
         double expectedReturn,
         string signalId,
         string strategy,
-        AppSettings.SignalFilterSettings sf)
+        AppSettings.SignalFilterSettings sf,
+        string? attributionJson = null)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var magic = Math.Abs(signalId.GetHashCode()) & 0xFFFF;
@@ -175,6 +178,7 @@ public sealed class SignalGeneratorService
             Strategy = strategy,
             Status = "pending",
             ParamsSnapshot = JsonSerializer.Serialize(new { sf.ProbThreshold, strategy }),
+            AttributionJson = attributionJson,
             CreatedAt = now,
         };
     }

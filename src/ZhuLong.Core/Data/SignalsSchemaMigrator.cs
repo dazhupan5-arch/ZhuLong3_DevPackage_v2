@@ -9,6 +9,9 @@ public static class SignalsSchemaMigrator
     private const string StrategyAddSql =
         "ALTER TABLE signals ADD COLUMN strategy TEXT NOT NULL DEFAULT '';";
 
+    private const string AttributionAddSql =
+        "ALTER TABLE signals ADD COLUMN attribution_json TEXT;";
+
     public static async Task EnsureReadyAsync(
         ZhuLongDbContext db,
         ILogger? logger = null,
@@ -29,6 +32,7 @@ public static class SignalsSchemaMigrator
                 comment_hint    TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'pending',
                 params_snapshot TEXT,
+                attribution_json TEXT,
                 created_at      INTEGER NOT NULL DEFAULT 0,
                 strategy        TEXT NOT NULL DEFAULT ''
             );
@@ -41,6 +45,7 @@ public static class SignalsSchemaMigrator
         if (cols.Contains("signal_id"))
         {
             await EnsureStrategyColumnAsync(db, cols, logger, ct);
+            await EnsureAttributionColumnAsync(db, cols, logger, ct);
             await CreateSignalIndexesAsync(db, ct);
             return;
         }
@@ -48,12 +53,25 @@ public static class SignalsSchemaMigrator
         if (cols.Contains("SignalId"))
         {
             logger?.LogInformation("迁移 signals: PascalCase → snake_case");
-            await MigrateFromPascalCaseAsync(db, ct);
+            await MigrateFromPascalCaseAsync(db, logger, ct);
             return;
         }
 
         logger?.LogWarning("signals 结构异常，列={Columns}，重建空表", string.Join(',', cols));
         await RebuildEmptyAsync(db, ct);
+    }
+
+    private static async Task EnsureAttributionColumnAsync(
+        ZhuLongDbContext db,
+        HashSet<string> cols,
+        ILogger? logger,
+        CancellationToken ct)
+    {
+        if (SqliteSchemaHelper.HasColumn(cols, "attribution_json"))
+            return;
+        logger?.LogInformation("signals 表升级：添加 attribution_json");
+        await SqliteSchemaHelper.EnsureSnakeColumnAsync(
+            db, "signals", cols, "attribution_json", "AttributionJson", AttributionAddSql, ct);
     }
 
     private static async Task EnsureStrategyColumnAsync(
@@ -83,7 +101,7 @@ public static class SignalsSchemaMigrator
             db, cols, "signals", "idx_signals_status", "status", ct);
     }
 
-    private static async Task MigrateFromPascalCaseAsync(ZhuLongDbContext db, CancellationToken ct)
+    private static async Task MigrateFromPascalCaseAsync(ZhuLongDbContext db, ILogger? logger, CancellationToken ct)
     {
         await SqliteSchemaHelper.TryRenameColumnsAsync(db, "signals",
         [
@@ -111,6 +129,8 @@ public static class SignalsSchemaMigrator
         cols = await ReadColumnsAsync(db, ct);
         await SqliteSchemaHelper.EnsureSnakeColumnAsync(
             db, "signals", cols, "strategy", "Strategy", StrategyAddSql, ct);
+        cols = await ReadColumnsAsync(db, ct);
+        await EnsureAttributionColumnAsync(db, cols, logger, ct);
         await CreateSignalIndexesAsync(db, ct);
     }
 
@@ -131,6 +151,7 @@ public static class SignalsSchemaMigrator
                 comment_hint    TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'pending',
                 params_snapshot TEXT,
+                attribution_json TEXT,
                 created_at      INTEGER NOT NULL DEFAULT 0,
                 strategy        TEXT NOT NULL DEFAULT ''
             );
@@ -165,6 +186,7 @@ public static class SignalsSchemaMigrator
                 comment_hint    TEXT NOT NULL DEFAULT '',
                 status          TEXT NOT NULL DEFAULT 'pending',
                 params_snapshot TEXT,
+                attribution_json TEXT,
                 created_at      INTEGER NOT NULL DEFAULT 0,
                 strategy        TEXT NOT NULL DEFAULT ''
             );

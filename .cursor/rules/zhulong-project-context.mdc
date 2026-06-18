@@ -1,0 +1,116 @@
+---
+description: 烛龙3 V16 项目全局上下文（多机协同、架构原则、训练/部署流程）
+alwaysApply: true
+---
+
+# 烛龙3 项目上下文（延续自「不同电脑上的 Cursor 账号协同工作」）
+
+## 环境与协同
+
+- **开发机（本机）**：`D:\trae_projects\ZhuLong3_DevPackage_v2` — 唯一权威源码目录，勿与旧 `ZhuLong_3` 混淆
+- **GitHub**：`https://github.com/dazhupan5-arch/ZhuLong3_DevPackage_v2`（`main`）
+- **训练机（GPU）**：通过 `git pull` + `git lfs pull` 同步；训练不在本机跑
+- **协同方式**：A 机 `git push` → B 机 `git pull`；`.cursor/rules` 进仓库后自动生效
+- **旧仓库** `ZhuLong_3`（`dazhupan5-arch/ZhuLong3`）已过时，仅作历史参考
+- **数据**：黄金/原油 M5 约 70 万+ 根 10 年数据在桌面；`models/`、`data/` 本地保留，通常不进 Git
+
+## 架构哲学（用户明确要求）
+
+- **交易主权**：必须有一个「独裁者」承担决策责任，各模块只提供证据，不能各自发交易方向
+- **KN2 = 老交易员大脑**：连续叙事思考（能不能做、什么位置、波段/结构支持、值不值得、怎么做）；不是简单三分类
+- **预测是核心**：针对当前行情做 N 个预演找最优方案，不是回避预测
+- **最后一公里**：开仓 → 持仓管理 → 移动止损/止盈 → 完美出局 → 下一单，整条链路必须生效
+- **V16 决策链**：Structure → Horizon → KN2 → ExecutionComposer → RL（PPO 是执行手，不是第二个大脑）
+- **禁止**：懒加载/减数据量/延后加载来「解决」启动慢；开机必须全量加载；UI 文案必须可信
+- **禁止**：跳过 KN/PPO 验收上实机；门控不能靠放宽来拼单量，要风控 + 盈利
+- **实机问题**：必须顺着代码路径排查，不能借口「没实盘才发现不了 bug」
+
+## V16 模型栈
+
+| 组件 | 作用 | 产物 |
+|------|------|------|
+| Horizon v16 | 波段/方向预测（含位置信息） | `horizon_v16.onnx/.pth/.meta.json` |
+| KN2 v16 | 结构位置 + 开仓 SL/TP + 持仓管理决策 | `kn2_trader_v16.pth/.meta.json` |
+| RL (PPO) | 执行微调 | `rl_agent_xau.zip` + `agent_state_scaler_xauusd.json` |
+
+- 黄金（XAUUSD）为主力部署品种；原油（USOIL）需同样 KN 决策模式，多 symbol 扩展
+- 训练目标：**从更优的位置出发**（horizon16 已含位置信息），不是单纯改门控或拟合空单
+
+## 训练验收标准（严格，写死于 config/v16_acceptance.json）
+
+- **胜率**：OOS / lockbox / RL 评估均须 **≥ 60%**（`min_win_rate: 0.60`）
+- **Macro F1**：**训练集与测试集均须 > 0.5**（严格大于，≤0.5 不合格）
+- **过拟合门禁**：`train_f1 - test_f1` 不得超过 **0.10**（禁止 train 高 test 低）
+- **long/short**：测试集精确率、召回率均 **≥ 80%**
+- **无泄露契约**：禁止随机 val、禁止未来函数、NPZ 训练/测试时间切分不得重叠（验收脚本硬检查）
+
+## 训练机命令
+
+```powershell
+cd <ZhuLong3_DevPackage_v2>
+git pull && git lfs pull
+powershell -ExecutionPolicy Bypass -File scripts/retrain_v16_no_leak.ps1 -InstallDeps
+```
+
+## 开发机部署流程（模型拷回后）
+
+1. `py -3 scripts/pre_deploy_v16_gate.py --require-kn2-live`
+2. `scripts/deploy_and_verify_v16_dual_closure.ps1`（工程闭环 + 实盘日志闭环）
+3. `scripts/pack-installer.ps1 -ForcePack`（仅 dual closure PASS 后）
+4. 安装必须**全覆盖**旧文件，不能加载旧 json/旧路径
+
+## 已推送的关键 commit（main）
+
+- `b45cced` — V16 无泄露重训流水线 + 验收门禁
+- `79fa8c3` — 训练/部署硬门禁（pre_deploy_v16_gate、AgentStackModelGate、KN2 val 泄露修复）
+- `e935115` — 客户端 Python 栈与训练机 train/live parity 对齐
+
+## 当前待办 / 进行中
+
+- GPU 训练机正在/待跑全栈重训（Horizon → KN2 → RL）
+- 开发机职责：**全量代码 bug 审查**，确保模型验收通过后部署链路正常，不再出现实盘亏钱问题
+- 本地尚有未 push 的 C# UI / 安装包版本改动（与 GPU 训练无关）
+- 同事机部署问题：环境校验、安装覆盖、日志不一致曾反复出现，打包前必须实机审计
+
+## 实机审计清单（用户反复要求）
+
+检查：XX 未调用、仅用导致跳过、未接入空转、写了没用、重复加载、未对齐、未进策略、架构未全量同步、声明未赋值、未生效；以及信号→持仓→移动止损/止盈→平仓→下一单全链路。
+
+## 新模型训练完 → 一并部署时待修（契约对齐审计 2026-06-18）
+
+### P0 — 部署后契约被抹掉 ✅ 已修（2026-06-18）
+
+1. **`scripts/Merge-V16AgentConfig.ps1`**（新增）：以仓库 `config/config_agent.json` 为权威 merge；保留 AppData KN2 LIVE（`enabled=true` 且 `shadow_mode=false`）。
+2. **`deploy_horizon_v16_production.ps1`**：不再精简覆写；调用 merge + 可选 `-HorizonMinConfidence`；新增 `-SkipPreDeployGate`（旧模型开发同步用）。
+3. **`deploy_v16_execution_gates.ps1`**：同上 merge（含 `execution_composer`、`trading_env`、完整 kn2 段）。
+4. **`AgentConfigSync.TrySyncRuntimeFieldsFromInstall`**：同步键已含 `execution_composer`、`trading_env`；`SyncKn2ContractFromInstall` 保留用户 KN2 LIVE。
+5. **`deploy_v16_full_stack.ps1`**：支持 `-SkipPreDeployGate` 传给 horizon deploy。
+
+### P1 — 训练/实盘不一致 & 开机行为（仍待新模型部署时）
+
+4. **`trading_env.py` RL 训练**：execution_parity 仅用 `structure_entry_target`，未走 `ExecutionComposer.compose` + KN2 → 与实盘链不一致，需在重训 RL 或下一版训练脚本中对齐。
+5. **`deploy_v16_full_stack.ps1`**：horizon 不再毁配置；KN2 仍按 acceptance 决定 LIVE/shadow（P1 可再做成单次原子 deploy）。
+6. **开机评估 `HydratePendingSignalsAsync`**：评估 flat 时清空全部 pending；托管恢复方向不一致直接 `model_exit` → 须经 KN2/Composer 再裁决，禁止 flat 一键清信号。
+7. **Worker 重启 + duplicate_bar**：无持仓时 skip 可能导致持仓管理字段缺失 → 部署时验证 Worker 常驻与有仓 tick 路径。
+
+### P2 — 配置/验收细节
+
+8. **`audit_training_no_leak.py`**：`min_win_rate` 检查已改为 `>= 0.60` ✅。
+9. **`symbols.XAUUSD.knowledge_net`**：仍指向旧 `knowledge_net.onnx` → 部署时与 `architecture.horizon_predictor` 统一或清理 legacy 路径。
+10. **本机/同事机 ONNX 运行时**：`onnxruntime` DLL 失败时全链路探针跑不通 → 部署包内 `install_python_deps` / 环境校验需硬验证 agent_tick。
+
+### 部署时执行顺序（模型合格后）
+
+1. ~~修 P0 脚本 + C# sync → push~~（已完成，待 push）
+2. `pre_deploy_v16_gate.py --require-kn2-live`
+3. `deploy_and_verify_v16_dual_closure.ps1`（或 `deploy_v16_full_stack.ps1`，旧模型开发期加 `-SkipPreDeployGate`）
+4. 实机全量审计（integration + execution_parity + 持仓路径 + 开机/持仓日志）
+5. `pack-installer.ps1 -ForcePack` → 同事机安装全覆盖
+
+### 审计已通过（部署时勿破坏）
+
+- `audit_execution_parity_contract` 15/15
+- `audit_integration_wiring` 39/39
+- `audit_position_management_path` 静态 10/10
+- 关键 pytest 23/23
+- 决策链代码接线：Structure → Horizon → KN2 → Composer → RL → C# 持仓管理

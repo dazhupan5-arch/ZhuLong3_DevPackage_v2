@@ -1,0 +1,18 @@
+{
+  "oos_range": ["2025-01-01", "2025-12-31"],
+  "min_win_rate": 0.55,
+  "min_trades": 500,
+  "best": {
+    "flat_scale": 1.15,
+    "dir_margin": 0.0,
+    "min_confidence": 0.48,
+    "win_rate": 0.5881,
+    "n_trades": 1850,
+    "total_pnl_r": 812.58
+  },
+  "applied_to": {
+    "models/horizon_v16.meta.json": "calibration",
+    "config/config_agent.json": "min_direction_confidence=0.48"
+  },
+  "note": "Fast sweep on data/clean NPZ 2025 struct; official accept uses vendor CSV backtest."
+}

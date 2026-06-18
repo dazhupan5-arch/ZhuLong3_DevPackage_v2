@@ -2,7 +2,7 @@
 ; 编译前: scripts\pack-installer.ps1
 
 #define MyAppName "烛龙量化交易系统"
-#define MyAppVersion "3.1.11"
+#define MyAppVersion "3.1.36"
 #define MyAppPublisher "Stephen.Pan"
 #define MyAppExeName "ZhuLong.exe"
 
@@ -17,7 +17,7 @@ DefaultGroupName=烛龙
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\{#MyAppExeName}
 OutputDir=..\output
-OutputBaseFilename=ZhuLong_Setup_v3.1.11
+OutputBaseFilename=ZhuLong_Setup_v3.1.36
 SetupIconFile=..\assets\logo\zhulong.ico
 Compression=lzma2/normal
 SolidCompression=yes
@@ -43,6 +43,8 @@ Type: files; Name: "{app}\mscordaccore.dll"
 Type: files; Name: "{app}\mscordbi.dll"
 Type: files; Name: "{app}\createdump.exe"
 
+Type: filesandordirs; Name: "{app}\python_runtime"
+
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
@@ -67,11 +69,12 @@ Name: "{commondesktop}\烛龙系统"; Filename: "{app}\LaunchZhuLong.cmd"; Worki
 Filename: "{tmp}\windowsdesktop-runtime-8.0-win-x64.exe"; Parameters: "/install /quiet /norestart"; StatusMsg: "正在安装 .NET 8 Desktop 运行库..."; Flags: runhidden waituntilterminated; Check: NeedInstallDotNet8Desktop
 Filename: "{tmp}\WindowsAppRuntimeInstall-x64.exe"; Parameters: "--quiet"; StatusMsg: "正在安装 Windows App Runtime (WinUI 3)，约需 5-10 分钟..."; Flags: runhidden waituntilterminated; Check: NeedInstallWinAppRuntime
 Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/install /passive /norestart"; StatusMsg: "正在安装 Visual C++ 运行库..."; Flags: runhidden waituntilterminated; Check: NeedInstallVcRedist
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install_post_setup.ps1"" -InstallDir ""{app}"""; StatusMsg: "正在配置 Python 智能体依赖..."; Flags: runhidden waituntilterminated
+Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/repair /passive /norestart"; StatusMsg: "正在修复 Visual C++ 运行库..."; Flags: runhidden waituntilterminated; Check: VcRedistInstalled
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\scripts\install_post_setup.ps1"" -InstallDir ""{app}"""; StatusMsg: "正在验证内置 Python 与 V16 智能体..."; Flags: runhidden waituntilterminated
 Filename: "{app}\LaunchZhuLong.cmd"; Description: "启动烛龙系统"; Flags: nowait postinstall skipifsilent
 
 [Messages]
-WelcomeLabel2=将安装 [name/ver]。%n%n升级前请先退出烛龙。安装程序会自动安装缺失的 .NET 8 Desktop、WinUI 3、VC++ 运行库（已安装则跳过）。%n%nMT5 桥接文件需手动复制（见 mql5\Libraries\ZhuLong_部署说明.txt）。安装程序不会关闭 MT5。
+WelcomeLabel2=将安装 [name/ver]（自包含版：内置 Python 3.11 + V16 模型，无需单独安装 Python）。%n%n升级前请先退出烛龙。安装程序会自动安装/修复 .NET 8 Desktop、WinUI 3、VC++ 运行库，并验证 Horizon ONNX 探针。%n%nMT5 桥接文件需手动复制（见 mql5\Libraries\ZhuLong_部署说明.txt）。安装程序不会关闭 MT5。
 
 [Code]
 function DotNet8DesktopInstalled(): Boolean;

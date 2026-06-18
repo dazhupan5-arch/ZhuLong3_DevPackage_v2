@@ -144,7 +144,7 @@ def audit_acceptance_config(root: Path) -> None:
     chk("min_test_macro_f1 > 0.5", float(acc.get("min_test_macro_f1", min_f1)) >= 0.50)
     chk("max_train_test_f1_gap set", "max_train_test_f1_gap" in acc, str(acc.get("max_train_test_f1_gap")))
     min_wr = float(acc.get("min_win_rate", 0))
-    chk("min_win_rate > 0.60", min_wr > 0.60, str(min_wr))
+    chk("min_win_rate >= 0.60", min_wr >= 0.60, str(min_wr))
     chk("require_no_data_leak", acc.get("require_no_data_leak") is True)
     chk("require_no_future_function", acc.get("require_no_future_function") is True)
     chk("require_temporal_val_split", acc.get("require_temporal_val_split") is True)

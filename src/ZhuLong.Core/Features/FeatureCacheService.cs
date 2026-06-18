@@ -6,6 +6,9 @@ namespace ZhuLong.Core.Features;
 /// <summary>M1 缓冲 → M5 合成 → 序列特征（对齐 Python feature_engine）。</summary>
 public sealed class FeatureCacheService
 {
+    /// <summary>智能体推理导出 M5 上限（结构 lookback=200，无需整段 1000+ 根）。</summary>
+    public const int AgentM5ExportMaxBars = 400;
+
     private readonly Dictionary<string, List<M1Bar>> _m1 = new();
     private readonly Dictionary<string, List<OhlcBar>> _m5 = new();
     private readonly Dictionary<string, DateTime> _lastM5Bucket = new();
@@ -248,6 +251,8 @@ public sealed class FeatureCacheService
             if (!_m5.TryGetValue(symbol, out var m5) || m5.Count == 0) return false;
             var export = m5.Count >= 2 ? m5.Take(m5.Count - 1).ToList() : m5;
             if (export.Count == 0) return false;
+            if (export.Count > AgentM5ExportMaxBars)
+                export = export.GetRange(export.Count - AgentM5ExportMaxBars, AgentM5ExportMaxBars);
             bars = ExportM5Array(export);
             if (bars.Length == 0) return false;
             decisionBarUnix = bars[^1].TimeUnix;

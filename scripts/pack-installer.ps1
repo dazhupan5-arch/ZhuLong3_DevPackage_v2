@@ -6,12 +6,25 @@ param(
     [switch] $SkipPublish,
     [switch] $KeepPublish,
     [switch] $SkipLogo,
-    [switch] $SkipModels
+    [switch] $SkipModels,
+    [switch] $ForcePack
 )
 
 $ErrorActionPreference = 'Stop'
 Set-Location (Join-Path $PSScriptRoot '..')
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+
+Write-Host '== Pre-pack Python syntax gate (source) ==' -ForegroundColor Cyan
+& (Join-Path $RepoRoot 'scripts\validate_python_agent_bundle.ps1') -Root $RepoRoot
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+if (-not $ForcePack) {
+    Write-Host 'Running V16 dual-closure gate before pack...' -ForegroundColor Cyan
+    & (Join-Path $RepoRoot 'scripts\deploy_and_verify_v16_dual_closure.ps1') -SkipAdmin
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error 'Dual closure FAILED — pack blocked. Fix issues or use -ForcePack (not recommended).'
+    }
+}
 $StageDir = Join-Path $RepoRoot 'publish\win-x64'
 $BinDir = Join-Path $RepoRoot 'src\ZhuLong.App\bin\x64\Release\net8.0-windows10.0.19041.0\win-x64'
 $outDir = Join-Path $RepoRoot 'output'
@@ -214,6 +227,13 @@ foreach ($df in @('fred_latest.json', 'sentiment.json', 'macro_events.csv', 'mac
     $src = Join-Path (Join-Path $RepoRoot 'data') $df
     if (Test-Path $src) { Copy-Item -Force $src (Join-Path $dataDst $df) }
 }
+$macroEventsStaged = Join-Path $dataDst 'macro_events.csv'
+if (-not (Test-Path $macroEventsStaged)) { throw 'Staging missing data/macro_events.csv' }
+$macroText = Get-Content -LiteralPath $macroEventsStaged -Raw -Encoding UTF8
+if ($macroText -notmatch '2026-06-18 02:00,FOMC') {
+    throw 'macro_events.csv FOMC 时间错误：应为 2026-06-18 02:00 北京时间'
+}
+Write-Host '  macro_events.csv: FOMC 2026-06-18 02:00 OK' -ForegroundColor Green
 foreach ($sf in @('agent_state_scaler_xauusd.json', 'agent_state_scaler_usoil.json')) {
     $src = Join-Path (Join-Path $RepoRoot 'data') $sf
     if (-not (Test-Path $src)) { throw "Missing agent data: data/$sf" }
@@ -231,11 +251,15 @@ foreach ($item in @('config.json', 'ZhuLong.PythonEngine', 'mql5', 'assets')) {
     if (Test-Path $src -PathType Leaf) {
         Copy-Item -Force $src (Join-Path $StageDir (Split-Path $item -Leaf))
     } else {
-        Copy-TreeClean -Src $src -Dst (Join-Path $StageDir (Split-Path $item -Leaf))
+        Copy-TreeClean -Src $src -Dst (Join-Path $StageDir (Split-Path $item -Leaf)) -ExcludeDirs @('__pycache__', '.pytest_cache', 'tests')
     }
 }
 Stage-InstallerModels -DestRoot $StageDir
 Stage-ZhulongRuntime -DestRoot $StageDir
+
+Write-Host '== Python agent syntax gate ==' -ForegroundColor Cyan
+& (Join-Path $RepoRoot 'scripts\validate_python_agent_bundle.ps1') -Root $StageDir
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 function Write-WindowsPs1 {
     param([string]$Source, [string]$Dest)
@@ -254,12 +278,19 @@ function Write-WindowsBatch {
 }
 
 Copy-Item -Force (Join-Path $RepoRoot 'requirements_runtime.txt') (Join-Path $StageDir 'requirements_runtime.txt')
-# 实机安装包不含训练依赖清单 requirements.txt
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\install_python_deps.ps1') (Join-Path $StageDir 'install_python_deps.ps1')
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\resolve_system_python.ps1') (Join-Path $StageDir 'resolve_system_python.ps1')
 New-Item -ItemType Directory -Force -Path (Join-Path $StageDir 'scripts') | Out-Null
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\check_runtime.ps1') (Join-Path $StageDir 'scripts\check_runtime.ps1')
-Write-Host '  不打包 python_runtime — 目标机安装 Python 3 后运行 install_python_deps.ps1' -ForegroundColor Cyan
+
+# System Python mode: drop bundled python_runtime (~200MB installer)
+if ($StageDir) {
+    $rtDir = Join-Path $StageDir 'python_runtime'
+    if ($rtDir -and (Test-Path -LiteralPath $rtDir)) {
+        Remove-Item -Recurse -Force $rtDir
+        Write-Host '  removed python_runtime from staging (system Python mode)' -ForegroundColor Yellow
+    }
+}
 
 New-Item -ItemType Directory -Force -Path (Join-Path $StageDir 'indicators') | Out-Null
 Copy-Item -Force (Join-Path $RepoRoot 'mql5\ZhuLongIndicator.mq5') (Join-Path $StageDir 'indicators\')
@@ -328,6 +359,8 @@ Write-Host '  scripts: runtime only (no training/backtest)' -ForegroundColor Cya
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\check_runtime.ps1') (Join-Path $scriptsDst 'check_runtime.ps1')
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\fix_runtimeconfig.ps1') (Join-Path $scriptsDst 'fix_runtimeconfig.ps1')
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\install_post_setup.ps1') (Join-Path $scriptsDst 'install_post_setup.ps1')
+Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\resolve_system_python.ps1') (Join-Path $scriptsDst 'resolve_system_python.ps1')
+Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\validate_python_agent_bundle.ps1') (Join-Path $scriptsDst 'validate_python_agent_bundle.ps1')
 Write-WindowsPs1 (Join-Path $RepoRoot 'scripts\resolve_system_python.ps1') (Join-Path $StageDir 'resolve_system_python.ps1')
 $causalCoef = Join-Path $RepoRoot 'models\causal_coef.pkl'
 if (Test-Path $causalCoef) {
@@ -356,13 +389,39 @@ foreach ($agentFile in @('knowledge_net.onnx', 'knowledge_net.meta.json', 'knowl
     Copy-Item -Force $src (Join-Path (Join-Path $StageDir 'models') $agentFile)
     Write-Host "  agent model: $agentFile" -ForegroundColor Cyan
 }
-foreach ($kn2File in @('kn2_trader.pth', 'kn2_trader.meta.json')) {
+foreach ($kn2File in @('kn2_trader_v16.pth', 'kn2_trader_v16.meta.json')) {
     $src = Join-Path (Join-Path $RepoRoot 'models') $kn2File
     if (-not (Test-Path $src)) {
-        throw "Missing KN2 model: models/$kn2File"
+        $src = Join-Path (Join-Path $RepoRoot 'data') $kn2File
+    }
+    if (-not (Test-Path $src)) {
+        throw "Missing KN2 V16 model: models/$kn2File (or data/$kn2File)"
     }
     Copy-Item -Force $src (Join-Path (Join-Path $StageDir 'models') $kn2File)
-    Write-Host "  KN2 model: $kn2File" -ForegroundColor Cyan
+    Write-Host "  KN2 V16 model: $kn2File" -ForegroundColor Cyan
+}
+foreach ($kn2File in @('kn2_trader.pth', 'kn2_trader.meta.json')) {
+    $src = Join-Path (Join-Path $RepoRoot 'models') $kn2File
+    if (Test-Path $src) {
+        Copy-Item -Force $src (Join-Path (Join-Path $StageDir 'models') $kn2File)
+        Write-Host "  KN2 legacy model: $kn2File" -ForegroundColor DarkGray
+    }
+}
+foreach ($v16File in @('horizon_v16.onnx', 'horizon_v16_scaler.pkl', 'horizon_v16.meta.json')) {
+    $src = Join-Path (Join-Path $RepoRoot 'models') $v16File
+    if (-not (Test-Path $src)) {
+        throw "Missing V16 Horizon model: models/$v16File"
+    }
+    Copy-Item -Force $src (Join-Path (Join-Path $StageDir 'models') $v16File)
+    Write-Host "  V16 Horizon: $v16File" -ForegroundColor Cyan
+}
+Write-Host '== V16 models staged ==' -ForegroundColor Cyan
+$rlMeta = Join-Path $RepoRoot 'models\XAUUSD\v16\rl_meta.json'
+if (Test-Path $rlMeta) {
+    $rlMetaDst = Join-Path (Join-Path $StageDir 'models') 'XAUUSD\v16'
+    New-Item -ItemType Directory -Force -Path $rlMetaDst | Out-Null
+    Copy-Item -Force $rlMeta (Join-Path $rlMetaDst 'rl_meta.json')
+    Write-Host '  V16 RL meta: XAUUSD/v16/rl_meta.json' -ForegroundColor Cyan
 }
 # USOIL V14 manifest (Stage-InstallerModels already ships inference models)
 Copy-Item -Force (Join-Path $RepoRoot 'models\USOIL\manifest.json') (Join-Path (Join-Path $StageDir 'models') 'USOIL\manifest.json') -ErrorAction SilentlyContinue
@@ -386,8 +445,11 @@ foreach ($jf in $dataJunk) {
 $total = (Get-ChildItem $StageDir -Recurse -File | Measure-Object Length -Sum).Sum
 $totalMb = [math]::Round($total / 1MB, 1)
 Write-Host ("Staging: {0} MB" -f $totalMb) -ForegroundColor Green
-if ($totalMb -gt 1200) {
-    throw "Staging too large (${totalMb} MB) - expected runtime ~300-600 MB (self-contained). Check for training/dev files in publish/win-x64."
+if ($totalMb -gt 450) {
+    Write-Warning "Staging ${totalMb} MB - larger than expected ~200-250 MB (check for python_runtime bloat)."
+}
+if ($totalMb -lt 150) {
+    Write-Warning "Staging only ${totalMb} MB - models may be missing."
 }
 
 if ($Output -eq 'Folder') {
@@ -407,7 +469,11 @@ Write-Host "== [7/7] Inno Setup: $iscc ==" -ForegroundColor Cyan
 $proc = Start-Process -FilePath $iscc -ArgumentList @((Resolve-Path $iss).Path) -Wait -NoNewWindow -PassThru
 if ($proc.ExitCode -ne 0) { exit $proc.ExitCode }
 
-$setup = Get-ChildItem $outDir -Filter 'ZhuLong_Setup_v3.1.11.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+$setup = Get-ChildItem $outDir -Filter 'ZhuLong_Setup_v3.1.13.exe' -ErrorAction SilentlyContinue | Select-Object -First 1
+if (-not $setup) {
+    $setup = Get-ChildItem $outDir -Filter 'ZhuLong_Setup_v*.exe' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
 if ($setup) {
     Write-Host ("Installer OK: {0} ({1} MB)" -f $setup.FullName, [math]::Round($setup.Length / 1MB, 1)) -ForegroundColor Green
 }

@@ -1,22 +1,22 @@
 {
   "forecast": {
-    "pred_long": 21860,
-    "pred_short": 20536,
-    "pred_flat": 28405,
-    "trade_long": 21860,
-    "trade_short": 20536
+    "pred_long": 19802,
+    "pred_short": 17809,
+    "pred_flat": 33190,
+    "trade_long": 19802,
+    "trade_short": 17809
   },
   "backtest": {
-    "win_rate": 0.5791974656810982,
-    "avg_rr": 1.5247485271334476,
-    "expectancy": 0.39012477840389087,
+    "win_rate": 0.5765575501583949,
+    "avg_rr": 1.5028171030806887,
+    "expectancy": 0.3909922523450826,
     "n_trades": 1894,
     "max_daily_signals": 8,
-    "max_drawdown": 0.021713952874479525,
-    "total_pnl_r": 738.8963302969694,
-    "n_long": 1011,
-    "n_short": 883,
-    "long_win_rate": 0.5964391691394659,
-    "short_win_rate": 0.5594563986409966
+    "max_drawdown": 0.016229936286005924,
+    "total_pnl_r": 740.5393259415864,
+    "n_long": 988,
+    "n_short": 906,
+    "long_win_rate": 0.6002024291497976,
+    "short_win_rate": 0.5507726269315674
   }
 }

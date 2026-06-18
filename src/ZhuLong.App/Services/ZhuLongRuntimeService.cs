@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 using ZhuLong.Core;
@@ -66,7 +67,8 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     private readonly SemaphoreSlim _historyBootstrapGate = new(1, 1);
     private readonly SemaphoreSlim _signalTickGate = new(1, 1);
     private readonly TaskCompletionSource _startupHistoryReady = new();  // P1-1: 启动等待历史数据就绪
-    private volatile bool _startupAssessmentDone;  // 启动评估是否已完成（用于延迟连接重跑）
+    private volatile bool _startupAssessmentDone;  // 启动评估是否已完成
+    private volatile bool _startupAssessmentApplied;  // 是否成功产出可采信的智能体意见（非 skip/异常）
     private AppSettings _settings = new();
     private readonly HashSet<string> _warnedNoModelSymbols = new(StringComparer.OrdinalIgnoreCase);
     private bool _productionModelSkipLogged;
@@ -139,6 +141,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         {
             Log($"已合成新的 5 分钟 K 线 {sym} {Mt5Time.FormatBar(bar.Time)} C={bar.Close:F2}");
             if (!IsTradingAgentEnabled()) return;
+            if (!_startupAssessmentDone) return;
             if (!string.Equals(sym, State.PrimarySymbol, StringComparison.OrdinalIgnoreCase)) return;
             lock (_agentBarLock)
             {
@@ -195,6 +198,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             SignalStatusChanged?.Invoke(p.SignalId, status, rawReason, p.ProfitPct);
             UpdateSyncHealth();
             Log($"平仓信号已更新 {p.Symbol} {p.SignalId} → {status}");
+            if (IsTradingAgentEnabled() && _agentRuntimeReady && _python.IsReady)
+            {
+                var pnlR = ProfitPctToR(p);
+                _ = NotifyAgentClosedTradeAsync(p.Symbol, pnlR);
+            }
         };
         _positionManager.LogEmitted += Log;
         _positionManager.ChartRefreshRequested += state => _ = RefreshManagedSignalDrawAsync(state);
@@ -297,10 +305,12 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         _macro.Configure(_settings);
         var prod = ProductionModelGate.Check(_settings);
         State.ModelsReady = prod.Ready;
-
         Log("正在初始化系统…");
         if (!prod.Ready)
+        {
             Log(prod.Summary);
+            ModelsMissing?.Invoke(prod.Summary);
+        }
 
         // 数据库（活跃信号恢复在启动评估之后执行，避免 inferenceSnap 为空时误关 awaiting_fill）
         await _database.EnsureCreatedAsync(ct).ConfigureAwait(false);
@@ -309,6 +319,9 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         try
         {
             await _macro.InitializeAsync(ct).ConfigureAwait(false);
+            _macro.TryLogUpcomingReminder(Log, hours: 24.0);
+            if (IsTradingAgentEnabled())
+                _ = _envCoordinator.TryRefreshMacroOnStartupAsync(ct);
         }
         catch (Exception ex)
         {
@@ -316,24 +329,12 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             Log($"宏观日历加载失败: {ex.Message}");
         }
 
-        // Python / 智能体子进程
+        // Python / 智能体：仅初始化运行时；Horizon 预加载放到 Start() 历史就绪之后（避免与 MT5 补数抢资源）
         try
         {
-            if (IsTradingAgentEnabled())
-            {
-                _agentRuntimeReady = await _envCoordinator.EnsureAgentReadyAsync(Log, ct).ConfigureAwait(false);
-                if (!_agentRuntimeReady)
-                    Log("智能体环境未就绪：请安装 Python 3.10+ 后运行 install_python_deps.ps1，并确认 models/knowledge_net.onnx 存在");
-            }
-
             _python.Initialize();
             if (IsTradingAgentEnabled())
-            {
-                if (_agentRuntimeReady)
-                    Log("智能体模式已就绪（RL 子进程验证通过）");
-                else
-                    Log("智能体模式：子进程未通过验证，调度将暂停直至环境修复");
-            }
+                Log("智能体模式：点击「开始运行」后将预加载 Horizon 并启用 5 分钟推理");
             else
             {
                 var symbols = prod.ReadySymbols.ToArray();
@@ -341,6 +342,9 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
                 {
                     Log($"加载模型 {string.Join(", ", symbols)}");
                     await _python.WarmupAsync(symbols, ct).ConfigureAwait(false);
+                    if (!await _python.ValidateModelsAsync(symbols, ct).ConfigureAwait(false))
+                        Log("子进程 validate 未通过，legacy 推理可能失败");
+                    _python.WarmupInBackground(symbols);
                 }
                 else
                 {
@@ -368,6 +372,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         }
 
         if (_cts is not null) return;
+        if (!_coreInitialized)
+        {
+            Log("系统尚未完成初始化，请稍候再点开始运行");
+            return;
+        }
         _settings = AppSettings.LoadOrCreate(AppPaths.ConfigPath);
         EnsureAgentConfigAligned();
         SyncPrimarySymbolState();
@@ -399,8 +408,25 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         {
             try
             {
+                if (bootstrapTask is not null)
+                {
+                    try { await bootstrapTask.ConfigureAwait(false); }
+                    catch (Exception ex) { _logger.LogWarning(ex, "历史数据预热未完成"); }
+                }
+
                 // Step 1: 等待历史数据就绪（最多 60 秒）
                 await WaitForHistoryReadyAsync(_cts!.Token, minM5: 30, timeoutSec: 60);
+
+                // Step 1b: 历史就绪后再预加载 Horizon（避免 warmup 与 MT5 补数并发挂死）
+                if (IsTradingAgentEnabled() && !_agentRuntimeReady)
+                {
+                    _agentRuntimeReady = await _envCoordinator.EnsureAgentReadyAsync(Log, _cts!.Token)
+                        .ConfigureAwait(false);
+                    if (!_agentRuntimeReady)
+                        Log("智能体未就绪：V16 全栈热加载失败，5 分钟推理已暂停（详见上方 Python 错误）");
+                    else
+                        Log("智能体 V16 全栈已就绪（Horizon + KN2 + RL 已在开机时热加载）");
+                }
 
                 // Step 2: 开机智能体评估（用到了 M5 数据才能工作）
                 await RunStartupAgentAssessmentAsync(_cts!.Token);
@@ -471,19 +497,25 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 	// ===== P1-1: 开机智能体评估（修复 — 不等待管道，直接用 MT5 API 预热数据）=====
 	private async Task RunStartupAgentAssessmentAsync(CancellationToken ct)
 	{
+		if (IsTradingAgentEnabled() && !_agentRuntimeReady)
+		{
+			Log("开机评估跳过：智能体未就绪，保留现有托管/待处理信号（不做观望裁决）");
+			return;
+		}
+
 		var primary = State.PrimarySymbol;
 		var m5Count = _featureCache.GetM5Count(primary);
 		if (m5Count < 30)
 		{
-			Log($"开机评估跳过：{primary} M5={m5Count} 根 < 30");
-			// 即使 M5 不足也标记 flat，避免旧信号被原样恢复
-			_inferenceSnap.Set(primary, new InferenceResult { Direction = 0, Confidence = 0 });
+			Log($"开机评估跳过：{primary} M5={m5Count} 根 < 30，保留现有托管/待处理信号");
 			return;
 		}
 
 		Log($"开机智能体评估开始：{primary} M5={m5Count}根");
+		await _signalTickGate.WaitAsync(ct).ConfigureAwait(false);
 		try
 		{
+			MultiStrategyTickResult? primaryTick = null;
 			if (IsTradingAgentEnabled())
 			{
 				var configPath = ResolveAgentConfigPath();
@@ -495,30 +527,27 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 
 				if (m5Map.Count > 0)
 				{
-					var (results, skipReason) = await _python.AgentTickAsync(
-						m5Map, symbols, primary, _macro.IsSilenceWindow(),
-						configPath, BuildAgentTickPayload(symbols), BuildAgentPositionPayload(),
-						TimeSpan.FromSeconds(90), ct,
-						decisionBarUnix: decisionBarUnix,
-						m5IncludesForming: false);
+                    var (results, skipReason) = await _python.AgentTickAsync(
+                        m5Map, symbols, primary, _macro.IsSilenceWindow(),
+                        configPath, BuildAgentTickPayload(symbols), BuildAgentPositionPayload(),
+                        TimeSpan.FromSeconds(300), ct,
+                        decisionBarUnix: decisionBarUnix,
+                        m5IncludesForming: false,
+                        macroFeatures: _macro.GetFeatures());
 					if (results.Count == 0 && !string.IsNullOrWhiteSpace(skipReason))
 						Log($"开机评估：智能体未运行（{skipReason}）");
+					primaryTick = results.FirstOrDefault(r =>
+						string.Equals(r.Symbol, primary, StringComparison.OrdinalIgnoreCase));
 					foreach (var r in results)
 					{
-						if (r.Signal != null && r.Signal.Direction is "buy" or "sell")
+						if (r.Skipped)
 						{
-							_inferenceSnap.Set(r.Symbol, new InferenceResult
-							{
-								Direction = r.Signal.Direction == "buy" ? 1 : -1,
-								Confidence = r.Signal.Confidence,
-							});
-							Log($"开机评估：{r.Symbol} 智能体看{r.Signal.Direction} conf={r.Signal.Confidence:F2}");
+							Log($"开机评估：{r.Symbol} 跳过（{r.RejectReason ?? "skipped"}，不裁决旧信号）");
+							continue;
 						}
-						else
-						{
-							_inferenceSnap.Set(r.Symbol, new InferenceResult { Direction = 0, Confidence = 0 });
-							Log($"开机评估：{r.Symbol} 智能体看平");
-						}
+						_inferenceSnap.Set(r.Symbol, AgentInferenceSnapHelper.ToInferenceSnap(r));
+						_startupAssessmentApplied = true;
+						Log($"开机评估：{AgentInferenceSnapHelper.FormatPrimaryTickLog(r.Symbol, r)}");
 					}
 				}
 			}
@@ -553,11 +582,26 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 				}
 			}
 
-			if (_inferenceSnap.TryGet(primary, out var inf))
+			if (primaryTick is not null)
 			{
-				var dirText = inf.Direction > 0 ? "多头" : inf.Direction < 0 ? "空头" : "观望";
-				Log($"开机智能体评估完成：{primary} → {dirText} conf={inf.Confidence:F2}");
-				PublishAgentOpinion(primary, inf.Direction, inf.Confidence);
+				var (opinionDir, displayConf, hDir, cogDir, rl, action, hMin, arch) =
+					AgentInferenceSnapHelper.BuildOpinionPublishArgs(primaryTick);
+				var isV16 = string.Equals(arch, "v16", StringComparison.OrdinalIgnoreCase);
+				Log($"开机智能体评估完成：{AgentInferenceSnapHelper.FormatPrimaryTickLog(primary, primaryTick)}");
+				if (isV16)
+					PublishAgentOpinion(primary, opinionDir, displayConf, hDir, rl, action, hMin, arch, cogDir);
+				else
+					PublishAgentOpinion(primary, opinionDir, displayConf, cogDir, rl, action, architecture: arch);
+			}
+			else if (_inferenceSnap.TryGet(primary, out var inf))
+			{
+				var hDir = string.IsNullOrWhiteSpace(inf.HorizonDirection) ? inf.CognitionDirection : inf.HorizonDirection;
+				var hConf = inf.HorizonConfidence > 0 ? inf.HorizonConfidence : inf.Confidence;
+				var cogDir = string.IsNullOrWhiteSpace(inf.CognitionDirection) ? "flat" : inf.CognitionDirection;
+				var rl = string.IsNullOrWhiteSpace(inf.RlAction) ? "—" : inf.RlAction;
+				Log($"开机智能体评估完成：{primary} Horizon={hDir}({hConf:F2}) 认知={cogDir}({inf.CognitionConfidence:F2}) RL={rl} conf={inf.Confidence:F2}");
+				PublishAgentOpinion(
+					primary, inf.Direction, inf.Confidence, hDir, rl, "—", 0.48, "v16", cogDir);
 			}
 			else
 			{
@@ -567,10 +611,12 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 		catch (Exception ex)
 		{
 			_logger.LogWarning(ex, "开机智能体评估失败");
-			// P1-1: 评估失败时也标记为 flat，避免旧信号被原样恢复
-			_inferenceSnap.Set(primary, new InferenceResult { Direction = 0, Confidence = 0 });
-			Log($"开机评估异常：{ex.Message}（已标记{primary}为观望，旧信号不会恢复）");
-	}
+			Log($"开机评估异常：{ex.Message}（不裁决旧信号，托管/待处理将保守恢复）");
+		}
+		finally
+		{
+			_signalTickGate.Release();
+		}
 	}
 
 	/// <summary>等待 M5 历史数据就绪（最多 timeoutSec 秒），用于开机时序协调。</summary>
@@ -602,14 +648,17 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         try
         {
             var primary = State.PrimarySymbol;
-            var isFlat = _inferenceSnap.TryGet(primary, out var snap) && snap.Direction == 0;
+            var applyAgentFilter = _startupAssessmentApplied;
+            var isFlat = applyAgentFilter
+                && _inferenceSnap.TryGet(primary, out var snap)
+                && snap.Direction == 0;
 
             var pending = await _database.GetPendingSignalsAsync(30, ct);
             if (pending.Count > 0)
             {
                 if (isFlat)
                 {
-                    Log($"开机评估看平，关闭 {pending.Count} 条待处理旧信号");
+                    Log($"开机评估明确看平，关闭 {pending.Count} 条待处理旧信号");
                     foreach (var sig in pending)
                         await CloseSignalInDbAsync(sig.SignalId, "model_exit", ct);
                 }
@@ -617,30 +666,24 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
                 {
                     foreach (var sig in pending)
                         _pendingStore.Add(sig);
-                    Log($"已从数据库恢复 {pending.Count} 条待处理信号");
+                    Log($"已从数据库恢复 {pending.Count} 条待处理信号"
+                        + (applyAgentFilter ? "" : "（评估未产出意见，不经 KN2/方向过滤）"));
                 }
             }
 
             var active = await _database.GetActiveSignalsAsync(50, ct);
             if (active.Count > 0)
             {
-                // 评估尚未完成时：按账本恢复托管，不做方向裁决（防止 Initialize/重连竞态误关 awaiting_fill）
-                if (_inferenceSnap.IsEmpty && !_startupAssessmentDone)
+                if (!applyAgentFilter || _inferenceSnap.IsEmpty)
                 {
-                    var early = await _positionManager.RestoreActiveSignalsAsync(active, ct);
-                    Log($"启动评估待完成，已从数据库恢复 {early} 条托管（跳过方向过滤）");
+                    var conservative = await _positionManager.RestoreActiveSignalsAsync(
+                        active, ct, applyAgentDirectionFilter: false);
+                    Log($"保守恢复托管 {conservative}/{active.Count} 条（评估"
+                        + (applyAgentFilter ? "无有效意见" : "未成功/已跳过")
+                        + "，保留 awaiting_fill，不经方向过滤）");
                     return;
                 }
 
-                if (_inferenceSnap.IsEmpty)
-                {
-                    Log($"开机评估未执行（inferenceSnap 为空），关闭 {active.Count} 条旧信号");
-                    foreach (var sig in active)
-                        await CloseSignalInDbAsync(sig.SignalId, "model_exit", ct);
-                    return;
-                }
-
-                // active 信号由 RestoreActiveSignalsAsync 内部判断 flat/direction
                 var restored = await _positionManager.RestoreActiveSignalsAsync(active, ct);
                 var skipped = active.Count - restored;
                 Log(skipped > 0
@@ -829,6 +872,54 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         return _featureCache.GetM1Count(primary) > 0 ? (IReadOnlyList<string>)[primary] : [];
     }
 
+    private IReadOnlyList<string> CollectAgentSymbols()
+    {
+        var enabled = LoadAgentEnabledSymbols();
+        var candidates = CollectMultiStrategySymbols();
+        if (enabled.Count == 0)
+            return candidates;
+        return candidates.Where(s => enabled.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
+    }
+
+    /// <summary>历史 M1 预热 / API 补数品种：智能体模式下跳过 config 中 disabled 的品种。</summary>
+    private IReadOnlyList<string> CollectDataPrefetchSymbols()
+    {
+        var all = ModelConfigSync.ResolveSymbols(_settings);
+        if (!IsTradingAgentEnabled())
+            return all;
+        var enabled = LoadAgentEnabledSymbols();
+        if (enabled.Count == 0)
+            return all;
+        return all.Where(s => enabled.Contains(s, StringComparer.OrdinalIgnoreCase)).ToList();
+    }
+
+    private HashSet<string> LoadAgentEnabledSymbols()
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            var path = ResolveAgentConfigPath();
+            if (!File.Exists(path))
+                return set;
+            using var doc = JsonDocument.Parse(File.ReadAllText(path));
+            if (!doc.RootElement.TryGetProperty("symbols", out var symbols) ||
+                symbols.ValueKind != JsonValueKind.Object)
+                return set;
+            foreach (var prop in symbols.EnumerateObject())
+            {
+                if (prop.Value.ValueKind != JsonValueKind.Object)
+                    continue;
+                if (!prop.Value.TryGetProperty("enabled", out var en) || en.GetBoolean())
+                    set.Add(prop.Name);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "读取 config_agent symbols 失败");
+        }
+        return set;
+    }
+
     private IReadOnlyList<string> CollectMultiStrategySymbols()
     {
         const int minM5 = 80;
@@ -858,6 +949,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     // ----- RunTradingAgentSignalTickAsync -----
     private async Task RunTradingAgentSignalTickAsync(CancellationToken ct)
     {
+        _macro.TryLogUpcomingReminder(Log, hours: 12.0);
         if (!_agentRuntimeReady)
         {
             _agentRuntimeReady = await _envCoordinator.EnsureAgentReadyAsync(Log, ct).ConfigureAwait(false);
@@ -868,7 +960,13 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             }
         }
 
-        var msSymbols = CollectMultiStrategySymbols();
+        if (!IsMarketOpen())
+        {
+            Log("休市期间：跳过智能体调度");
+            return;
+        }
+
+        var msSymbols = CollectAgentSymbols();
         SyncPrimarySymbolState();
         var primary = State.PrimarySymbol;
 
@@ -920,6 +1018,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         var configPath = ResolveAgentConfigPath();
         var ticks = BuildAgentTickPayload(msSymbols);
         var positions = BuildAgentPositionPayload();
+        var macroFeatures = _macro.GetFeatures();
         IReadOnlyList<MultiStrategyTickResult> results;
         string? agentSkipReason = null;
         try
@@ -927,9 +1026,10 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             (results, agentSkipReason) = await _python.AgentTickAsync(
                 m5Map, msSymbols, primary, _macro.IsSilenceWindow(), configPath,
                 ticks, positions,
-                TimeSpan.FromSeconds(90), ct,
+                TimeSpan.FromSeconds(120), ct,
                 decisionBarUnix: decisionBarUnix,
-                m5IncludesForming: false);
+                m5IncludesForming: false,
+                macroFeatures: macroFeatures);
         }
         catch (TimeoutException)
         {
@@ -939,6 +1039,8 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "RL 智能体调度失败");
+            if (_positionManager.OpenManagedCount > 0)
+                Log("【严重】持仓中智能体 tick 失败：M5 持仓管理/移损/智能体平仓已中断，当前仅 MT5 静态 SL/TP 保护");
             Log($"智能体失败: {ex.Message}");
             return;
         }
@@ -960,55 +1062,35 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             State.AgentArchitecture = primaryResult.Architecture ?? "";
             var rl = string.IsNullOrWhiteSpace(primaryResult.RlRawAction) ? "—" : primaryResult.RlRawAction;
             var action = string.IsNullOrWhiteSpace(primaryResult.AgentAction) ? "—" : primaryResult.AgentAction;
-            var regime = string.IsNullOrWhiteSpace(primaryResult.CognitionRegime) ? "—" : primaryResult.CognitionRegime;
-            var cogDir = string.IsNullOrWhiteSpace(primaryResult.CognitionDirection) ? "—" : primaryResult.CognitionDirection;
-            var cogConf = primaryResult.CognitionConfidence;
-            var filterNote = string.IsNullOrWhiteSpace(primaryResult.FilterReason) ? "" : $" 门控={primaryResult.FilterReason}";
             var arch = primaryResult.Architecture ?? "";
             var isV16 = string.Equals(arch, "v16", StringComparison.OrdinalIgnoreCase);
-            var logPrefix = StrategyNames.AgentLogPrefix(arch);
+            Log(AgentInferenceSnapHelper.FormatPrimaryTickLog(primary, primaryResult));
+            if (primaryResult.AiSlPrice > 0)
+                State.AiSuggestedSl = primaryResult.AiSlPrice;
+            if (primaryResult.AiTpPrice > 0)
+                State.AiSuggestedTp = primaryResult.AiTpPrice;
+            var (opinionDir, displayConf, hDir, cogDir, _, _, hMin, _) =
+                AgentInferenceSnapHelper.BuildOpinionPublishArgs(primaryResult);
             if (isV16)
-            {
-                var hDir = string.IsNullOrWhiteSpace(primaryResult.HorizonDirection) ? cogDir : primaryResult.HorizonDirection;
-                var hConf = StrategyNames.FormatHorizonConfidence(
-                    primaryResult.HorizonConfidence > 0 ? primaryResult.HorizonConfidence : cogConf,
-                    primaryResult.HorizonMinConfidence > 0 ? primaryResult.HorizonMinConfidence : 0.48);
-                var kn2Note = primaryResult.Kn2ShadowMode || !string.IsNullOrWhiteSpace(primaryResult.Kn2Action)
-                    ? $" KN2={(primaryResult.Kn2ShouldTrade ? "trade" : "hold")}({primaryResult.Kn2Confidence:F2})"
-                    : "";
-                Log($"{logPrefix} {primary} Horizon={hDir}({hConf}) RL={rl} 最终={action} 行情={regime}{filterNote}{kn2Note} 策略={StrategyNames.AgentStrategyLabel(arch)}");
-            }
+                PublishAgentOpinion(primary, opinionDir, displayConf, hDir, rl, action, hMin, arch, cogDir);
             else
-            {
-                Log($"{logPrefix} {primary} 认知={cogDir}({cogConf:F2}) RL={rl} 最终={action} 行情={regime}{filterNote} 策略={StrategyNames.LogLabel(primaryResult.ActiveStrategy)}");
-            }
-            var opinionDir = cogDir switch
-            {
-                "long" => 1,
-                "short" => -1,
-                _ => 0,
-            };
-            var opinionConf = cogConf > 0 ? cogConf : (primaryResult.Signal?.Confidence ?? 0);
-            if (isV16)
-            {
-                var hDir = string.IsNullOrWhiteSpace(primaryResult.HorizonDirection) ? cogDir : primaryResult.HorizonDirection;
-                var hConf = primaryResult.HorizonConfidence > 0 ? primaryResult.HorizonConfidence : opinionConf;
-                var hMin = primaryResult.HorizonMinConfidence > 0 ? primaryResult.HorizonMinConfidence : 0.48;
-                PublishAgentOpinion(primary, opinionDir, hConf, hDir, rl, action, hMin, primaryResult.Architecture);
-            }
-            else
-            {
-                PublishAgentOpinion(primary, opinionDir, opinionConf, cogDir, rl, action, architecture: arch);
-            }
+                PublishAgentOpinion(primary, opinionDir, displayConf, cogDir, rl, action, architecture: arch);
         }
 
         foreach (var r in results)
         {
+            if (string.Equals(r.Symbol, primary, StringComparison.OrdinalIgnoreCase))
+                _inferenceSnap.Set(r.Symbol, AgentInferenceSnapHelper.ToInferenceSnap(r));
+
             if (_positionManager.HasFilledPositionForSymbol(r.Symbol))
             {
                 await ApplyAgentPositionManagementAsync(r, ct);
+                await TrySendDrawPayloadAsync(r, ct);
                 continue;
             }
+
+            if (r.Skipped)
+                continue;
 
             var working = _positionManager.GetWorkingIntent(r.Symbol);
             if (working is not null)
@@ -1037,7 +1119,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
                 continue;
             }
 
-            var signal = _signalGenerator.TryGenerateFromStrategySignal(_settings, payload);
+            var signal = _signalGenerator.TryGenerateFromStrategySignal(_settings, payload, r.AttributionJson);
             if (signal is null)
             {
                 Log($"未通过过滤 {payload.Symbol} 策略={StrategyNames.LogLabel(payload.Strategy)}：{_signalGenerator.LastRejectReason ?? "未知"}");
@@ -1045,6 +1127,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             }
 
             await TryEmitSignalAsync(signal, ct);
+            await TrySendDrawPayloadAsync(r, ct);
         }
     }
 
@@ -1097,8 +1180,21 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             return;
 
         var primaryState = filled[0];
+        var trail = string.IsNullOrWhiteSpace(r.TrailMode) ? "hold" : r.TrailMode;
+        var slHint = r.SuggestedTrailingSl > 0 ? r.SuggestedTrailingSl : r.AiSlPrice;
         Log($"持仓管理 {r.Symbol} signal={primaryState.SignalId} 浮盈={primaryState.LastProfitPct:F2}% " +
-            $"exit={r.ExitAssessment:F2}");
+            $"trail={trail} sl={slHint:F2} tp={r.AiTpPrice:F2} exit={r.ExitAssessment:F2} " +
+            $"{r.PositionMgmtReason ?? r.ExitReason ?? ""}");
+
+        foreach (var state in filled)
+        {
+            _positionManager.ApplyAgentM5PositionManagement(
+                state.SignalId,
+                r.SuggestedTrailingSl > 0 ? r.SuggestedTrailingSl : (r.AiSlPrice > 0 ? r.AiSlPrice : null),
+                r.AiTpPrice > 0 ? r.AiTpPrice : null,
+                r.TrailMode,
+                r.PositionMgmtReason ?? r.ExitReason);
+        }
 
         if (r.ExitAssessment >= 0.65)
         {
@@ -1210,7 +1306,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
                 continue;
             }
 
-            var signal = _signalGenerator.TryGenerateFromStrategySignal(_settings, payload);
+            var signal = _signalGenerator.TryGenerateFromStrategySignal(_settings, payload, r.AttributionJson);
             if (signal is null)
             {
                 Log($"未通过过滤 {payload.Symbol} 策略={StrategyNames.LogLabel(payload.Strategy)}：{_signalGenerator.LastRejectReason ?? "未知"}");
@@ -1268,7 +1364,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         {
             var seqLen = _settings.Model?.SeqLen ?? 60;
             var needM5 = Math.Max(seqLen + 20, 400);
-            foreach (var symbol in ModelConfigSync.ResolveSymbols(_settings))
+            foreach (var symbol in CollectDataPrefetchSymbols())
             {
                 if (_featureCache.GetM5Count(symbol) >= needM5) continue;
 
@@ -1296,23 +1392,9 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             // P1-1: 标记启动阶段的历史数据就绪（即使失败也让后续按现有数据继续）
             _startupHistoryReady.TrySetResult();
 
-            // 如果是启动后延迟加载（启动评估已完成），重新触发评估
-            if (_startupAssessmentDone && _cts is not null)
-            {
-                var token = _cts.Token;
-                _ = Task.Run(async () =>
-                {
-                    try
-                    {
-                        if (_featureCache.GetM5Count(State.PrimarySymbol) >= 30)
-                        {
-                            Log($"管道/MT5 延迟连接：重新运行开机评估");
-                            await RunStartupAgentAssessmentAsync(token);
-                        }
-                    }
-                    catch (Exception ex) { _logger.LogWarning(ex, "延迟连接评估异常"); }
-                }, token);
-            }
+            // 热重连/延迟管道：不重跑开机评估，避免 duplicate_bar/Worker 异常误清托管
+            if (_startupAssessmentDone)
+                Log("管道/MT5 延迟连接：不重跑开机评估，沿用现有托管与意见");
         }
     }
 
@@ -1448,7 +1530,8 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         {
             try
             {
-                await _positionManager.ScanAsync(ct);
+                if (IsMarketOpen())
+                    await _positionManager.ScanAsync(ct);
             }
             catch (Exception ex)
             {
@@ -1538,7 +1621,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 
     private async Task PurgeExpiredPendingAsync(CancellationToken ct)
     {
-        var mins = _settings.SignalFilters?.SignalExpiryMinutes ?? 240;
+        var mins = ResolveSignalExpiryMinutes();
         foreach (var sig in _pendingStore.MarkExpired(mins))
         {
             await _database.UpdateSignalStatusAsync(sig.SignalId, "expired", ct);
@@ -1628,7 +1711,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     private async Task SyncRecentM1FromMt5ApiAsync(CancellationToken ct)
     {
         const int recentBars = 20;
-        foreach (var symbol in ModelConfigSync.ResolveSymbols(_settings))
+        foreach (var symbol in CollectDataPrefetchSymbols())
         {
             ct.ThrowIfCancellationRequested();
             var broker = _settings.ResolveBrokerSymbol(symbol);
@@ -1660,20 +1743,23 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
         string symbol,
         int direction,
         double confidence,
-        string? cognitionDir = null,
+        string? horizonDir = null,
         string? rlAction = null,
         string? finalAction = null,
         double minConfidence = 0,
-        string? architecture = null)
+        string? architecture = null,
+        string? cognitionDir = null)
     {
-        var isV16 = string.Equals(architecture, "v16", StringComparison.OrdinalIgnoreCase);
-        var dirText = direction > 0 ? "多头" : direction < 0 ? "空头" : "观望";
-        var cogLabel = string.IsNullOrWhiteSpace(cognitionDir) ? dirText : cognitionDir switch
+        static string DirLabel(string? dir) => dir switch
         {
             "long" => "多头",
             "short" => "空头",
             _ => "观望",
         };
+
+        var isV16 = string.Equals(architecture, "v16", StringComparison.OrdinalIgnoreCase);
+        var hLabel = DirLabel(horizonDir);
+        var cLabel = DirLabel(cognitionDir ?? horizonDir);
         var rlLabel = string.IsNullOrWhiteSpace(rlAction) ? "—" : rlAction;
         var finalLabel = string.IsNullOrWhiteSpace(finalAction) ? "—" : finalAction;
         var confNote = minConfidence > 0
@@ -1681,11 +1767,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             : $"{confidence:F2}";
         var text = isV16
             ? (direction == 0
-                ? $"Horizon方向：{symbol} 观望（Horizon={cogLabel} {confNote} RL={rlLabel} 最终={finalLabel}）"
-                : $"Horizon方向：{symbol} {cogLabel} conf={confNote}（RL={rlLabel} 最终={finalLabel}）")
+                ? $"Horizon方向：{symbol} 最终=观望 | Horizon={hLabel} conf={confNote} | 认知={cLabel} | RL={rlLabel} 动作={finalLabel}"
+                : $"Horizon方向：{symbol} {hLabel} conf={confNote}（RL={rlLabel} 最终={finalLabel}）")
             : (direction == 0
-                ? $"智能体意见：{symbol} 观望（认知={cogLabel} RL={rlLabel} 最终={finalLabel}）"
-                : $"智能体意见：{symbol} 认知={cogLabel} conf={confidence:F2}（RL={rlLabel} 最终={finalLabel}）");
+                ? $"智能体意见：{symbol} 最终=观望 | 认知={cLabel} conf={confidence:F2} | RL={rlLabel} 动作={finalLabel}"
+                : $"智能体意见：{symbol} 认知={cLabel} conf={confidence:F2}（RL={rlLabel} 最终={finalLabel}）");
         State.AgentOpinionText = text;
         AgentOpinionUpdated?.Invoke(text);
     }
@@ -1693,9 +1779,41 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     private static string DrawInjectPath =>
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ZhuLong", "inject_draw.json");
 
-    private async Task TryProcessDrawInjectFileAsync(CancellationToken ct) { /* unchanged */ }
+    private async Task TryProcessDrawInjectFileAsync(CancellationToken ct)
+    {
+        if (!File.Exists(DrawInjectPath))
+            return;
+        string text;
+        try
+        {
+            text = await File.ReadAllTextAsync(DrawInjectPath, ct).ConfigureAwait(false);
+            File.Delete(DrawInjectPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "inject_draw 读取失败");
+            return;
+        }
 
-    private async Task RegisterDrawInjectSignalAsync(System.Text.Json.JsonElement root, CancellationToken ct) { /* unchanged */ }
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(text);
+            if (!_pipeServer.IsDrawConnected)
+            {
+                Log("inject_draw 跳过：绘图管道未连接");
+                return;
+            }
+            await _pipeServer.SendDrawCommandAsync(doc.RootElement, ct).ConfigureAwait(false);
+            Log("inject_draw 测试信号已发送到 MT5 图表");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "inject_draw 解析/发送失败");
+        }
+    }
 
     private async Task<bool> TryEmitSignalAsync(SignalModel signal, CancellationToken ct)
     {
@@ -1725,6 +1843,8 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             : "挂单意图已建立（M1 穿价或 tick 到达目标价即撮合成交）");
         _riskGuard.RecordSignalEmitted(signal.Symbol);
         UpdateSyncHealth();
+        if (IsTradingAgentEnabled() && _agentRuntimeReady && _python.IsReady)
+            _ = NotifyAgentSignalEmittedAsync(signal.Symbol);
         return true;
     }
 
@@ -1857,7 +1977,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
             tp = signal.TakeProfit,
             confidence = signal.Confidence,
             strategy = signal.Strategy,
-            expiry_minutes = _settings.SignalFilters?.SignalExpiryMinutes ?? 240,
+            expiry_minutes = ResolveSignalExpiryMinutes(),
         }, ct);
         TrackDrawnSignal(signal.SignalId);
         if (!ok)
@@ -1885,7 +2005,7 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
 
         try
         {
-            var expired = _pendingStore.MarkExpired(_settings.SignalFilters?.SignalExpiryMinutes ?? 240);
+            var expired = _pendingStore.MarkExpired(ResolveSignalExpiryMinutes());
             foreach (var sig in expired)
             {
                 try { await _database.UpdateSignalStatusAsync(sig.SignalId, "expired", CancellationToken.None); } catch { }
@@ -1914,6 +2034,18 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     private string ResolveAgentConfigPath() =>
         AgentConfigSync.ResolveAgentConfigPath(_settings);
 
+    /// <summary>价格涨跌幅 % → R 倍数（以初始 SL 距离为 1R）。</summary>
+    private static double ProfitPctToR(ManagedPositionModel p)
+    {
+        if (p.EntryPrice > 0 && p.StopLoss > 0)
+        {
+            var slDistPct = Math.Abs(p.EntryPrice - p.StopLoss) / p.EntryPrice * 100.0;
+            if (slDistPct > 1e-6)
+                return p.ProfitPct / slDistPct;
+        }
+        return p.ProfitPct / 0.5;
+    }
+
     private Dictionary<string, object> BuildAgentTickPayload(IReadOnlyList<string> symbols)
     {
         var ticks = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -1935,23 +2067,90 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         return _positionManager.ActiveManagedStates()
-            .Select(s => new Dictionary<string, object>
+            .Select(s =>
             {
-                ["symbol"] = s.Symbol,
-                ["direction"] = s.Direction,
-                ["entry"] = s.IsFilled ? s.EntryPrice : s.TargetEntry,
-                ["sl"] = s.StopLoss,
-                ["tp"] = s.TakeProfit,
-                ["profit_pct"] = s.IsFilled ? s.LastProfitPct : 0.0,
-                ["hold_seconds"] = s.IsFilled
-                    ? Math.Max(0, now - s.FilledAt)
-                    : Math.Max(0, now - s.OpenTime),
-                ["is_filled"] = s.IsFilled,
-                ["signal_id"] = s.SignalId,
-                ["time_expired"] = s.TimeExpired,
-                ["max_hold_minutes"] = _settings.PositionManagement?.MaxHoldMinutes ?? 240,
+                var dirSign = s.Direction switch
+                {
+                    "buy" => 1.0,
+                    "sell" => -1.0,
+                    _ => 0.0,
+                };
+                return new Dictionary<string, object>
+                {
+                    ["symbol"] = s.Symbol,
+                    ["direction"] = s.Direction,
+                    ["direction_sign"] = dirSign,
+                    ["entry"] = s.IsFilled ? s.EntryPrice : s.TargetEntry,
+                    ["sl"] = s.TrailingActivated ? s.TrailingSl : s.StopLoss,
+                    ["tp"] = s.TakeProfit,
+                    ["profit_pct"] = s.IsFilled ? s.LastProfitPct : 0.0,
+                    ["peak_profit_pct"] = s.IsFilled ? s.PeakProfitPct : 0.0,
+                    ["hold_seconds"] = s.IsFilled
+                        ? Math.Max(0, now - s.FilledAt)
+                        : Math.Max(0, now - s.OpenTime),
+                    ["is_filled"] = s.IsFilled,
+                    ["signal_id"] = s.SignalId,
+                    ["time_expired"] = s.TimeExpired,
+                    ["max_hold_minutes"] = _settings.PositionManagement?.MaxHoldMinutes ?? 240,
+                    ["min_hold_seconds_before_trailing"] =
+                        _settings.PositionManagement?.MinHoldSecondsBeforeTrailing ?? 60,
+                };
             })
             .ToList();
+    }
+
+    private int ResolveSignalExpiryMinutes() =>
+        IsTradingAgentEnabled()
+            ? AgentConfigSync.ResolveAgentSignalExpiryMinutes(_settings)
+            : _settings.SignalFilters?.SignalExpiryMinutes ?? 240;
+
+    private async Task NotifyAgentClosedTradeAsync(string symbol, double pnlR)
+    {
+        try
+        {
+            await _python.AgentRecordClosedTradeAsync(
+                symbol, pnlR, ResolveAgentConfigPath(), _cts?.Token ?? CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "智能体平仓反馈失败 {Symbol}", symbol);
+        }
+    }
+
+    private async Task NotifyAgentSignalEmittedAsync(string symbol)
+    {
+        try
+        {
+            await _python.AgentRecordSignalEmittedAsync(
+                symbol, ResolveAgentConfigPath(), _cts?.Token ?? CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "智能体日交易计数反馈失败 {Symbol}", symbol);
+        }
+    }
+
+    private async Task TrySendDrawPayloadAsync(MultiStrategyTickResult r, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(r.DrawPayloadJson) || !_pipeServer.IsDrawConnected)
+            return;
+        try
+        {
+            using var doc = JsonDocument.Parse(r.DrawPayloadJson);
+            await _pipeServer.SendDrawCommandAsync(doc.RootElement, ct).ConfigureAwait(false);
+            if (doc.RootElement.TryGetProperty("signal_id", out var sidEl))
+            {
+                var sid = sidEl.GetString();
+                if (!string.IsNullOrWhiteSpace(sid))
+                    TrackDrawnSignal(sid);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "draw_payload 发送失败 {Symbol}", r.Symbol);
+        }
     }
 
     private void SyncPrimarySymbolState()
@@ -1988,6 +2187,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     {
         if (_settings.MultiStrategy != null)
             _settings.MultiStrategy.Enabled = value;
+        if (value && _settings.TradingAgent?.Enabled == true)
+        {
+            _settings.TradingAgent.Enabled = false;
+            Log("已自动关闭智能体模式（与多策略互斥）");
+        }
         PersistSettings();
         Log($"多策略模式 → {(value ? "开启" : "关闭")}");
     }
@@ -1999,6 +2203,11 @@ public sealed class ZhuLongRuntimeService : IAsyncDisposable
     {
         if (_settings.TradingAgent != null)
             _settings.TradingAgent.Enabled = value;
+        if (value && _settings.MultiStrategy?.Enabled == true)
+        {
+            _settings.MultiStrategy.Enabled = false;
+            Log("已自动关闭多策略模式（与智能体互斥）");
+        }
         PersistSettings();
         EnsureAgentConfigAligned();
         Log($"RL 智能体模式 → {(value ? "开启" : "关闭")}");

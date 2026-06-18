@@ -8,7 +8,7 @@
   "long_threshold": 0.7,
   "short_threshold": 0.7,
   "model_version": "v14",
-  "trained_at": "2026-06-15",
+  "trained_at": "2026-06-18",
   "metrics": {
     "test1_win_rate": 0.71,
     "test1_short_win_rate": 0.664,

@@ -515,6 +515,38 @@ if ($dotnetProbe.Ok -and $dotnetProbe.Root) {
 
 
 
+function Test-SystemPython {
+    param([string] $Dir)
+    $resolve = Join-Path $Dir 'scripts\resolve_system_python.ps1'
+    if (-not (Test-Path -LiteralPath $resolve)) {
+        $resolve = Join-Path $Dir 'resolve_system_python.ps1'
+    }
+    if (-not (Test-Path -LiteralPath $resolve)) {
+        return @{ Ok = $false; Detail = '缺少 resolve_system_python.ps1' }
+    }
+    $prevEap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $resolve -InstallDir $Dir -Quiet 2>&1 | Out-Null
+        $exitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $prevEap
+    }
+    if ($exitCode -ne 0) {
+        return @{ Ok = $false; Detail = '未找到 Python 3.10+（请安装并勾选 Add to PATH，或运行 install_python_deps.ps1）' }
+    }
+    $exe = $env:ZHULONG_PYTHON
+    if ([string]::IsNullOrWhiteSpace($exe)) {
+        $cache = Join-Path $AppDataZhuLong 'python_exe.txt'
+        if (Test-Path $cache) { $exe = (Get-Content $cache -Raw).Trim() }
+    }
+    $detail = if ($exe) { "已识别 $exe" } else { '已识别系统 Python' }
+    return @{ Ok = $true; Detail = $detail }
+}
+
+
+
 $checks = [ordered]@{
 
     '.NET 8 Desktop Runtime' = $dotnetProbe
@@ -522,6 +554,8 @@ $checks = [ordered]@{
     'Windows App Runtime (WinUI 3)' = (Test-WinAppRuntime)
 
     'Visual C++ 2015-2022 x64' = (Test-VcRedist)
+
+    'Python 3.10+ (系统)' = (Test-SystemPython -Dir $InstallDir)
 
 }
 
@@ -533,17 +567,17 @@ $missing = @($checks.GetEnumerator() | Where-Object { -not $_.Value.Ok })
 
 if ($AutoRepair -and $missing.Count -gt 0) {
 
-    if (-not $checks['.NET 8 Desktop Runtime'].Ok) {
+    if (-not $checks.Item('.NET 8 Desktop Runtime').Ok) {
 
         $exe = Join-Path $RedistDir 'windowsdesktop-runtime-8.0-win-x64.exe'
 
         if (Install-Redist $exe '/install /quiet /norestart') {
 
-            $checks['.NET 8 Desktop Runtime'] = Test-DotNet8Desktop
+            $checks.Item('.NET 8 Desktop Runtime') = Test-DotNet8Desktop
 
-            if ($checks['.NET 8 Desktop Runtime'].Ok -and $checks['.NET 8 Desktop Runtime'].Root) {
+            if ($checks.Item('.NET 8 Desktop Runtime').Ok -and $checks.Item('.NET 8 Desktop Runtime').Root) {
 
-                $env:DOTNET_ROOT = $checks['.NET 8 Desktop Runtime'].Root
+                $env:DOTNET_ROOT = $checks.Item('.NET 8 Desktop Runtime').Root
 
                 Set-Content -LiteralPath (Join-Path $AppDataZhuLong 'dotnet_root.txt') -Value $env:DOTNET_ROOT -Encoding ASCII
 
@@ -553,7 +587,7 @@ if ($AutoRepair -and $missing.Count -gt 0) {
 
     }
 
-    if (-not ($checks['Windows App Runtime (WinUI 3)'].Ok)) {
+    if (-not ($checks.Item('Windows App Runtime (WinUI 3)').Ok)) {
 
         $exe = Join-Path $RedistDir 'WindowsAppRuntimeInstall-x64.exe'
 
@@ -561,19 +595,19 @@ if ($AutoRepair -and $missing.Count -gt 0) {
 
             Start-Sleep -Seconds 3
 
-            $checks['Windows App Runtime (WinUI 3)'] = (Test-WinAppRuntime)
+            $checks.Item('Windows App Runtime (WinUI 3)') = (Test-WinAppRuntime)
 
         }
 
     }
 
-    if (-not ($checks['Visual C++ 2015-2022 x64'].Ok)) {
+    if (-not ($checks.Item('Visual C++ 2015-2022 x64').Ok)) {
 
         $exe = Join-Path $RedistDir 'VC_redist.x64.exe'
 
         Install-Redist $exe '/install /passive /norestart' | Out-Null
 
-        $checks['Visual C++ 2015-2022 x64'] = (Test-VcRedist)
+        $checks.Item('Visual C++ 2015-2022 x64') = (Test-VcRedist)
 
     }
 

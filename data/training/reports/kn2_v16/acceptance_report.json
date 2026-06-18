@@ -1,0 +1,60 @@
+{
+  "architecture": "kn2_v16",
+  "passed": false,
+  "failures": [
+    "long_precision_below_0.3",
+    "long_pred_pct_below_0.1",
+    "short_precision_below_0.3",
+    "short_pred_pct_below_0.1"
+  ],
+  "meta": {
+    "hidden_dim": 256,
+    "num_layers": 2,
+    "embed_dim": 64,
+    "num_actions": 6,
+    "market_dim": 65,
+    "pos_dim": 6,
+    "architecture": "kn2_v16",
+    "val_loss": 0.8647373218214913,
+    "scenario_trained": false,
+    "scenario_horizons": []
+  },
+  "model_ready": true,
+  "inferred_market_dim": 65,
+  "smoke": {
+    "action": "hold",
+    "confidence": 0.5297410488128662,
+    "should_trade": false
+  },
+  "label_version": "location_v1",
+  "val_eval": {
+    "bars": 19968,
+    "elapsed_sec": 17.4,
+    "accuracy": 0.9041967147435898,
+    "per_class": {
+      "hold": {
+        "precision": 0.9043,
+        "recall": 0.9998,
+        "pred_pct": 0.9998,
+        "support": 18058
+      },
+      "long": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "pred_pct": 0.0,
+        "support": 934
+      },
+      "short": {
+        "precision": 0.0,
+        "recall": 0.0,
+        "pred_pct": 0.0002,
+        "support": 976
+      }
+    }
+  },
+  "thresholds": {
+    "min_val_accuracy": 0.5,
+    "min_class_precision": 0.3,
+    "min_class_pred_pct": 0.1
+  }
+}

@@ -213,6 +213,7 @@ public partial class App : Application
 
         sc.AddSingleton<PythonGilExecutor>();
 
+        sc.AddSingleton<PythonAgentWorker>();
         sc.AddSingleton<PythonInferenceService>();
 
         sc.AddSingleton<Mt5ApiWrapper>();

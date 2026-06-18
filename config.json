@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "烛龙 ZhuLong",
-    "version": "3.1.6"
+    "version": "3.1.36"
   },
   "model": {
     "seq_len": 60,
@@ -67,12 +67,12 @@
   },
   "macro": {
     "enabled": true,
-    "force_silence": false,
+    "force_silence": true,
     "force_silence_events": [
       "FOMC",
       "Nonfarm Payrolls"
     ],
-    "silence_before_minutes": 30,
+    "silence_before_minutes": 60,
     "silence_after_minutes": 15,
     "reload_interval_hours": 24,
     "calendar": {
@@ -128,7 +128,7 @@
     "symbol_cooldown_minutes": 30
   },
   "multi_strategy": {
-    "enabled": true,
+    "enabled": false,
     "config_path": "config/config_multi_strategy.json"
   },
   "trading_agent": {

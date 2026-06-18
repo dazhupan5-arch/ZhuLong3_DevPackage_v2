@@ -238,8 +238,9 @@ public sealed class MacroCalendarFetcher
             if (c.EventTime < fromLocal || c.EventTime > toLocal) continue;
             if (!MacroImpactHelper.IsTier1Event(c.EventName)) continue;
 
-            merged.RemoveAll(e => MacroImpactHelper.SameEventFamily(e.EventName, c.EventName));
-            merged.Add(c);
+            var normalized = c;
+            merged.RemoveAll(e => MacroImpactHelper.SameEventFamily(e.EventName, normalized.EventName));
+            merged.Add(normalized);
         }
 
         return merged.OrderBy(e => e.EventTime).ToList();

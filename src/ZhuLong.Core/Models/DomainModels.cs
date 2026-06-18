@@ -25,8 +25,15 @@ public sealed record OhlcBar
 
 public sealed class InferenceResult
 {
+    /// <summary>交易方向（无信号时为 0/flat）。</summary>
     public int Direction { get; init; }
+    /// <summary>展示用置信度（Horizon/认知/信号最强分量，flat 时也保留真实值）。</summary>
     public double Confidence { get; init; }
+    public string HorizonDirection { get; init; } = "";
+    public double HorizonConfidence { get; init; }
+    public string CognitionDirection { get; init; } = "";
+    public double CognitionConfidence { get; init; }
+    public string RlAction { get; init; } = "";
     public double EntryOffset { get; init; }
     public double ExpectedReturn { get; init; }
 }
@@ -54,6 +61,7 @@ public sealed class SignalModel
     /// <summary>实际平仓时间（Unix UTC），来自 trades.close_time。</summary>
     public long? CloseTime { get; set; }
     public string? ParamsSnapshot { get; init; }
+    public string? AttributionJson { get; init; }
     public long CreatedAt { get; init; }
     public string CreatedAtText => ChinaTime.Format(DateTimeOffset.FromUnixTimeSeconds(CreatedAt), "yyyy-MM-dd HH:mm:ss");
     public string ClosedAtText => CloseTime.HasValue
@@ -109,6 +117,7 @@ public sealed class ManagedPositionModel
     public string Symbol { get; init; } = "";
     public string Direction { get; init; } = "";
     public double EntryPrice { get; init; }
+    public double StopLoss { get; init; }
     public double Volume { get; init; }
     public double ProfitPct { get; init; }
     public string TrailingState { get; init; } = "";

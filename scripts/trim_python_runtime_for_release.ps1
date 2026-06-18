@@ -20,8 +20,8 @@ $removeDirs = @(
     (Join-Path $site "fsspec"),
     (Join-Path $site "filelock"),
     (Join-Path $site "functorch"),
-    (Join-Path $site "torchgen"),
-    (Join-Path $site "narwhals")
+    (Join-Path $site "torchgen")
+    # keep narwhals: required by scikit-learn >= 1.8 at runtime
 )
 
 foreach ($d in $removeDirs) {

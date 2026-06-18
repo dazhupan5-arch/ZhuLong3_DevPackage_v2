@@ -19,6 +19,12 @@ function Get-ZhuLongRoot {
 
 function Resolve-PythonExe {
     param([string]$Hint)
+    $root = Get-ZhuLongRoot -ScriptDir $PSScriptRoot
+    $bundled = Join-Path $root 'python_runtime\python.exe'
+    if ((Test-Path -LiteralPath $bundled) -and (Test-Path (Join-Path $root 'python_runtime\BUNDLED.json'))) {
+        return (Resolve-Path $bundled).Path
+    }
+
     if ($Hint -and (Test-Path $Hint)) { return (Resolve-Path $Hint).Path }
 
     $cache = Join-Path $env:APPDATA 'ZhuLong\python_exe.txt'
@@ -69,7 +75,7 @@ if (Test-Path $runtimeReq) {
     Invoke-Pip install --prefer-binary -r $runtimeReq
 } else {
     Write-Host '== pip install fallback packages ==' -ForegroundColor Cyan
-    Invoke-Pip install --prefer-binary torch xgboost "pandas==2.2.3" "pyarrow==17.0.0" "numpy>=1.26,<2" scikit-learn joblib MetaTrader5 fredapi requests
+    Invoke-Pip install --prefer-binary torch xgboost "pandas==2.2.3" "pyarrow==17.0.0" "numpy>=2.0,<3" scikit-learn joblib MetaTrader5 fredapi requests
 }
 
 Write-Host '== pip ensure MT5/macro ==' -ForegroundColor Cyan

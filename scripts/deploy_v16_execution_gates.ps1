@@ -60,32 +60,8 @@ if (Test-Path $cliSrc) {
 }
 
 $cfgPath = Join-Path $appData "config_agent.json"
-$cfgSrc = Join-Path $devRoot "config\config_agent.json"
-if (Test-Path $cfgSrc) {
-    $newCfg = Get-Content $cfgSrc -Raw -Encoding UTF8 | ConvertFrom-Json
-    if (Test-Path $cfgPath) {
-        $old = Get-Content $cfgPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        foreach ($prop in @("execution_gates", "trader_mind", "rl_inference", "architecture")) {
-            if ($newCfg.$prop) { $old | Add-Member -NotePropertyName $prop -NotePropertyValue $newCfg.$prop -Force }
-        }
-        # 保留已部署的 KN2 live/shadow 开关（勿被模板 config 覆盖）
-        if ($old.kn2 -and $newCfg.kn2) {
-            $kn2Live = [bool]$old.kn2.enabled
-            $old.kn2 = $newCfg.kn2
-            if ($kn2Live) {
-                $old.kn2.enabled = $true
-                $old.kn2.shadow_mode = $false
-            }
-        } elseif ($newCfg.kn2) {
-            $old | Add-Member -NotePropertyName kn2 -NotePropertyValue $newCfg.kn2 -Force
-        }
-        $old | ConvertTo-Json -Depth 20 | Set-Content $cfgPath -Encoding UTF8
-        Write-Host "Merged config_agent.json → AppData"
-    } else {
-        Copy-Item -Force $cfgSrc $cfgPath
-        Write-Host "Copied config_agent.json → AppData"
-    }
-}
+. (Join-Path $PSScriptRoot "Merge-V16AgentConfig.ps1")
+Merge-V16AgentConfig -TargetPath $cfgPath
 
 Write-Host @"
 

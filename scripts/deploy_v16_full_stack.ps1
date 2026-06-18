@@ -1,8 +1,9 @@
-# V16 全栈部署：Horizon + 执行门控 + KN2 shadow + AppData + 可选 Admin 同步 + 构建 UI
+# V16 全栈部署：Horizon 模型 + 契约 config 合并 + KN2（验收通过则 LIVE）
 param(
     [switch]$SkipBuild,
     [switch]$SkipRestart,
     [switch]$ForceKn2Shadow,
+    [switch]$SkipPreDeployGate,
     [string]$InstallDir = "C:\Program Files\ZhuLong"
 )
 
@@ -13,8 +14,10 @@ $appData = Join-Path $env:APPDATA "ZhuLong"
 
 Write-Host "`n========== V16 Full Stack Deploy ==========" -ForegroundColor Cyan
 
-# P0-P3: Horizon + execution gates
-& (Join-Path $Root "scripts\deploy_horizon_v16_production.ps1")
+# P0: 模型 + Python；config 由 execution_gates 统一 merge（禁止 horizon 精简覆写）
+$horizonArgs = @()
+if ($SkipPreDeployGate) { $horizonArgs += "-SkipPreDeployGate" }
+& (Join-Path $Root "scripts\deploy_horizon_v16_production.ps1") @horizonArgs
 if (-not $?) { exit 1 }
 
 & (Join-Path $Root "scripts\deploy_v16_execution_gates.ps1")

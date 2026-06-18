@@ -54,8 +54,24 @@ public sealed partial class AnalysisPanel : UserControl
             WinRateText.Text = $"{summary.WinRate * 100:F1}%";
             AvgPnlText.Text = $"{summary.AvgPnlPct:F2}%";
             ProfitFactorText.Text = summary.ProfitFactor >= 99 ? "∞" : $"{summary.ProfitFactor:F2}";
+
+            HorizonBinList.ItemsSource = summary.HorizonBins
+                .Select(b => $"{b.Label}  n={b.Count}  胜率={b.WinRateText}  均盈亏={b.AvgPnlText}")
+                .ToList();
+            RegimeBinList.ItemsSource = summary.RegimeBins
+                .Select(b => $"{b.Label}  n={b.Count}  胜率={b.WinRateText}  均盈亏={b.AvgPnlText}")
+                .ToList();
+            GateBinList.ItemsSource = summary.GateBins
+                .Select(b => $"{b.Label}  n={b.Count}  胜率={b.WinRateText}  均盈亏={b.AvgPnlText}")
+                .ToList();
+            Kn2BinList.ItemsSource = summary.Kn2Bins
+                .Select(b => $"{b.Label}  n={b.Count}  胜率={b.WinRateText}  均盈亏={b.AvgPnlText}")
+                .ToList();
             BinList.ItemsSource = summary.ConfidenceBins
                 .Select(b => $"{b.BinLabel}  n={b.Count}  胜率={b.WinRateText}  均盈亏={b.AvgPnlText}")
+                .ToList();
+            TuneList.ItemsSource = summary.TuneSuggestions
+                .Select(t => $"[{t.Priority}] {t.Key}: {t.Reason} → {t.Action}")
                 .ToList();
             TradeList.ItemsSource = summary.RecentTrades
                 .Select(t => $"{t.OpenTimeText}  {t.SignalId}  {t.PnlText}  {t.CloseReason}")

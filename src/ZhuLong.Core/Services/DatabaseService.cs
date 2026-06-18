@@ -50,6 +50,7 @@ public sealed class DatabaseService
             Strategy = signal.Strategy,
             Status = signal.Status,
             ParamsSnapshot = signal.ParamsSnapshot,
+            AttributionJson = signal.AttributionJson,
             CreatedAt = signal.CreatedAt,
         });
         await db.SaveChangesAsync(ct);

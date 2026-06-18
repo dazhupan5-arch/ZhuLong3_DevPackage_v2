@@ -6,7 +6,7 @@
 
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Spacing="12">
-            <TextBlock FontWeight="SemiBold" FontSize="16" Text="归因分析" />
+            <TextBlock FontWeight="SemiBold" FontSize="16" Text="归因分析 (V16 分层)" />
             <Button x:Name="RefreshBtn" Content="刷新归因" Click="OnRefreshClick" HorizontalAlignment="Left" />
 
             <Grid ColumnSpacing="16">
@@ -37,8 +37,23 @@
             <TextBlock FontWeight="SemiBold" Text="累计盈亏% 曲线" />
             <Border x:Name="PnlPlotHost" BorderBrush="Gray" BorderThickness="1" Height="240" />
 
-            <TextBlock FontWeight="SemiBold" Text="置信度分箱（prob_threshold）" />
-            <ListView x:Name="BinList" MinHeight="120" />
+            <TextBlock FontWeight="SemiBold" Text="Horizon 方向分箱" />
+            <ListView x:Name="HorizonBinList" MinHeight="80" />
+
+            <TextBlock FontWeight="SemiBold" Text="Regime 分箱" />
+            <ListView x:Name="RegimeBinList" MinHeight="80" />
+
+            <TextBlock FontWeight="SemiBold" Text="执行门控分箱" />
+            <ListView x:Name="GateBinList" MinHeight="80" />
+
+            <TextBlock FontWeight="SemiBold" Text="KN2 分箱" />
+            <ListView x:Name="Kn2BinList" MinHeight="80" />
+
+            <TextBlock FontWeight="SemiBold" Text="置信度分箱" />
+            <ListView x:Name="BinList" MinHeight="80" />
+
+            <TextBlock FontWeight="SemiBold" Text="调参建议" />
+            <ListView x:Name="TuneList" MinHeight="100" />
 
             <TextBlock FontWeight="SemiBold" Text="最近 30 笔交易" />
             <ListView x:Name="TradeList" MinHeight="200" />

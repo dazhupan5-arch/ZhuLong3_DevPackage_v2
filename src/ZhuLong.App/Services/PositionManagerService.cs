@@ -884,7 +884,10 @@ public sealed class PositionManagerService
 
     /// <summary>从数据库恢复 active / awaiting_fill 信号到托管列表（开机/重启后重绘图表）。</summary>
     /// <returns>实际恢复条数（已超最大持仓时间的信号会写回 DB 为 time_stop，不恢复、不重绘）。</returns>
-    public async Task<int> RestoreActiveSignalsAsync(IReadOnlyList<SignalModel> active, CancellationToken ct = default)
+    public async Task<int> RestoreActiveSignalsAsync(
+        IReadOnlyList<SignalModel> active,
+        CancellationToken ct = default,
+        bool applyAgentDirectionFilter = true)
     {
         var pm = _settings.PositionManagement ?? new AppSettings.PositionManagementSettings();
         var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -923,8 +926,8 @@ public sealed class PositionManagerService
                 continue;
             }
 
-            // ===== P1-1: AI 评估 — 方向不匹配的信号不恢复（仅对已成交） =====
-            if (!isAwaitingFill)
+            // AI 方向过滤：仅开机评估成功产出意见后才对已成交托管做 KN2/Horizon 方向裁决
+            if (applyAgentDirectionFilter && !isAwaitingFill)
             {
                 if (_inference.TryGet(sig.Symbol, out var inf) && inf.Direction != 0)
                 {
@@ -1081,16 +1084,23 @@ public sealed class PositionManagerService
         LogEmitted?.Invoke($"挂单意图撤销 {state.Symbol} {state.Direction} signal={state.SignalId}（{reason}）");
     }
 
+    private bool IsAgentPositionMode()
+    {
+        var pm = _settings.PositionManagement ?? new AppSettings.PositionManagementSettings();
+        return _settings.TradingAgent?.Enabled == true && pm.AgentDrivenExit;
+    }
+
     private bool UseMechanicalExit(string kind)
     {
         var pm = _settings.PositionManagement ?? new AppSettings.PositionManagementSettings();
-        if (_settings.TradingAgent?.Enabled != true || !pm.AgentDrivenExit)
+        if (!IsAgentPositionMode())
             return true;
+        // 智能体模式：M1 禁止机械移损；仅执行 M5 下发的 SL/TP 与硬止损
         return kind switch
         {
             "stop_loss" => pm.AgentHardStopLoss,
-            "trailing_stop" => pm.TrailingStopEnabled,
-            "trailing" => pm.TrailingStopEnabled,
+            "trailing_stop" => true,
+            "trailing" => false,
             _ => false,
         };
     }
@@ -1099,7 +1109,8 @@ public sealed class PositionManagerService
         await ProcessWorkingIntentFillAsync(brokerSymbol, bid, ask, ct);
 
         var pm = _settings.PositionManagement ?? new AppSettings.PositionManagementSettings();
-        if (!pm.TrailingStopEnabled) return;
+        if (!pm.TrailingStopEnabled && !IsAgentPositionMode())
+            return;
 
         List<KeyValuePair<long, ManagedState>> snapshot;
         lock (_managedLock) { snapshot = _managed.ToList(); }
@@ -1189,8 +1200,15 @@ public sealed class PositionManagerService
             }
             else
             {
-                if (state.TrailingActivated)
+                var entry = state.EntryPrice;
+                var inProfitZone = state.Direction == "buy"
+                    ? candidate >= entry
+                    : candidate <= entry;
+                if (state.TrailingActivated || inProfitZone)
+                {
+                    state.TrailingActivated = true;
                     state.TrailingSl = candidate;
+                }
                 else
                     state.StopLoss = candidate;
                 TryModifyRealPositionSlTp(state, candidate, state.TakeProfit);
@@ -1222,9 +1240,42 @@ public sealed class PositionManagerService
 
         if (changed)
         {
+            state.TrailingStateText = state.TrailingActivated
+                ? $"智能体移损 SL={state.TrailingSl:F2}"
+                : state.TrailingStateText;
             ChartRefreshRequested?.Invoke(state);
             AiSlTpUpdated?.Invoke(state, newSl, newTp, reason);
         }
+    }
+
+    /// <summary>M5 智能体持仓管理：应用 trail_mode / suggested_trailing_sl / ai_tp（禁止 M1 机械移损）。</summary>
+    public void ApplyAgentM5PositionManagement(
+        string signalId,
+        double? suggestedSl,
+        double? suggestedTp,
+        string? trailMode,
+        string? reason)
+    {
+        if (string.IsNullOrWhiteSpace(signalId))
+            return;
+
+        var mode = (trailMode ?? "hold").Trim().ToLowerInvariant();
+        var note = string.IsNullOrWhiteSpace(reason) ? "" : reason.Trim();
+
+        if (mode == "hold"
+            && (!suggestedSl.HasValue || suggestedSl.Value <= 0)
+            && (!suggestedTp.HasValue || suggestedTp.Value <= 0))
+        {
+            if (!string.IsNullOrEmpty(note))
+                LogEmitted?.Invoke($"智能体持仓 hold signal={signalId} {note}");
+            return;
+        }
+
+        if (mode is "run" or "tighten" && suggestedSl is > 0)
+            ApplyAiPositionAdjustment(signalId, suggestedSl, null, $"[{mode}] {note}");
+
+        if (suggestedTp is > 0)
+            ApplyAiPositionAdjustment(signalId, null, suggestedTp, $"[tp] {note}");
     }
 
     // ===== P0-3: MT5 实盘持仓同步 =====
@@ -1332,6 +1383,7 @@ public sealed class PositionManagerService
             Symbol = Symbol,
             Direction = Direction,
             EntryPrice = IsFilled ? EntryPrice : TargetEntry,
+            StopLoss = StopLoss,
             Volume = Volume,
             ProfitPct = profitPct,
             TrailingState = trailing,

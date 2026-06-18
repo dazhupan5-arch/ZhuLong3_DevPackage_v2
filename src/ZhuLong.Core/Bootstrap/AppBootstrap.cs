@@ -1,4 +1,5 @@
 using ZhuLong.Core.Configuration;
+using ZhuLong.Core.Macro;
 using ZhuLong.Core.Services;
 
 namespace ZhuLong.Core.Bootstrap;
@@ -11,10 +12,13 @@ public static class AppBootstrap
         _ = AppPaths.LogsDir;
         _ = AppPaths.AppDataDir;
         _ = AppPaths.WritableDataDir;
-        SeedBundledDataFiles();
+        MacroBundledDataSync.SeedOptionalJsonIfMissing();
+        MacroBundledDataSync.SyncMacroEventsCsvFromInstall();
 
         var userConfig = Path.Combine(AppPaths.AppDataDir, "config.json");
         var installConfig = Path.Combine(AppPaths.InstallDir, "config.json");
+
+        AgentConfigSync.ForceCopyMainConfigIfInstallUpgraded();
 
         if (!File.Exists(userConfig) || new FileInfo(userConfig).Length < 64)
         {
@@ -121,49 +125,5 @@ public static class AppBootstrap
 
         if (changed)
             user.Save(userConfig);
-    }
-
-    private static void SeedBundledDataFiles()
-    {
-        foreach (var (name, bundledRel) in new (string, string)[]
-        {
-            ("fred_latest.json", "data/fred_latest.json"),
-            ("sentiment.json", "data/sentiment.json"),
-            ("macro_events.csv", "data/macro_events.csv"),
-        })
-        {
-            var dst = Path.Combine(AppPaths.WritableDataDir, name);
-            if (File.Exists(dst))
-                continue;
-            var src = Path.Combine(AppPaths.InstallDir, bundledRel.Replace('/', Path.DirectorySeparatorChar));
-            if (!File.Exists(src))
-                continue;
-            try
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
-                File.Copy(src, dst, overwrite: false);
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
-
-        var bundledMacro = Path.Combine(AppPaths.InstallDir, "data", "macro");
-        var userMacro = Path.Combine(AppPaths.WritableDataDir, "macro");
-        var bundledCsv = Path.Combine(bundledMacro, "macro_daily.csv");
-        var userCsv = Path.Combine(userMacro, "macro_daily.csv");
-        if (File.Exists(bundledCsv) && !File.Exists(userCsv))
-        {
-            try
-            {
-                Directory.CreateDirectory(userMacro);
-                File.Copy(bundledCsv, userCsv, overwrite: false);
-            }
-            catch
-            {
-                /* ignore */
-            }
-        }
     }
 }

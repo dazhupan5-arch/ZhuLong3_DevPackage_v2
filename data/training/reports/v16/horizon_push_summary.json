@@ -1,0 +1,39 @@
+{
+  "mode": "push_acceptance",
+  "baseline_f1": 0.4214169599319455,
+  "default_gain": 0.0017,
+  "target_f1": 0.45,
+  "best_trial": null,
+  "best_macro_f1": 0.4214169599319455,
+  "best_val_accuracy": null,
+  "training_passed": false,
+  "trials": [
+    {
+      "name": "g017_warm",
+      "macro_f1": 0.41149964751452034,
+      "val_accuracy": 0.45662734212352535,
+      "model_path": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\tune_trials\\horizon_v16_push\\g017_warm.pth",
+      "scaler_path": "D:\\trae_projects\\ZhuLong3_DevPackage_v2\\models\\tune_trials\\horizon_v16_push\\g017_warm_scaler.pkl",
+      "elapsed_sec": 332.2,
+      "class_weights": [
+        2.4,
+        1.0,
+        2.4
+      ],
+      "smote_ratio": 0.55,
+      "lr": 0.0003,
+      "patience": 18,
+      "epochs": 80,
+      "focal_gamma": 0.0,
+      "temporal_val": false,
+      "warm_start": true,
+      "gain": 0.0017,
+      "label_stats": {
+        "rows": 672465,
+        "short_pct": 0.112,
+        "flat_pct": 0.7675,
+        "long_pct": 0.1205
+      }
+    }
+  ]
+}
