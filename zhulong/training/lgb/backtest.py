@@ -10,6 +10,31 @@ TP_ATR = 2.0
 MAX_HOLD_BARS = 48  # 240 分钟 @ M5
 DEFAULT_COOLDOWN_BARS = 12  # 60 分钟 @ M5
 
+# XAUUSD 默认交易成本（价格点；commission 美元/手）
+DEFAULT_SLIPPAGE_POINTS = 0.3
+DEFAULT_SPREAD_POINTS = 0.5
+DEFAULT_COMMISSION_PER_LOT = 7.0
+DEFAULT_CONTRACT_SIZE = 100.0
+
+
+def trade_cost_r(
+    entry: float,
+    atr: float,
+    sl_mult: float = SL_ATR,
+    *,
+    slippage_points: float = 0.0,
+    spread_points: float = 0.0,
+    commission_per_lot: float = 0.0,
+    contract_size: float = DEFAULT_CONTRACT_SIZE,
+) -> float:
+    """将滑点/点差/手续费折算为 R 倍数成本。"""
+    risk = sl_mult * atr
+    if risk <= 0 or entry <= 0:
+        return 0.0
+    point_cost_r = (slippage_points + spread_points) / risk
+    commission_r = commission_per_lot / max(risk * contract_size, 1e-9)
+    return float(point_cost_r + commission_r)
+
 
 def _atr_series(m5: pd.DataFrame, period: int = 14) -> pd.Series:
     prev_close = m5["close"].shift(1)
@@ -34,6 +59,8 @@ def simulate_trade(
     max_bars: int = MAX_HOLD_BARS,
     sl_mult: float = SL_ATR,
     tp_mult: float = TP_ATR,
+    *,
+    cost_r: float = 0.0,
 ) -> float:
     """返回 R 倍数；超时按最后一根收盘价平仓。"""
     risk = sl_mult * atr
@@ -46,32 +73,35 @@ def simulate_trade(
     cs = closes[:bars] if closes is not None else None
     win_r = tp_mult / sl_mult
 
+    def _apply_cost(r: float) -> float:
+        return float(r - cost_r)
+
     if direction > 0:
         sl, tp = entry - risk, entry + tp_mult * atr
         for i, (h, l) in enumerate(zip(hs, ls)):
             hit_sl, hit_tp = l <= sl, h >= tp
             if hit_sl and hit_tp:
-                return -1.0
+                return _apply_cost(-1.0)
             if hit_sl:
-                return -1.0
+                return _apply_cost(-1.0)
             if hit_tp:
-                return win_r
+                return _apply_cost(win_r)
         if cs is not None:
-            return float((cs[-1] - entry) / risk)
-        return 0.0
+            return _apply_cost(float((cs[-1] - entry) / risk))
+        return _apply_cost(0.0)
 
     sl, tp = entry + risk, entry - tp_mult * atr
     for i, (h, l) in enumerate(zip(hs, ls)):
         hit_sl, hit_tp = h >= sl, l <= tp
         if hit_sl and hit_tp:
-            return -1.0
+            return _apply_cost(-1.0)
         if hit_sl:
-            return -1.0
+            return _apply_cost(-1.0)
         if hit_tp:
-            return win_r
+            return _apply_cost(win_r)
     if cs is not None:
-        return float((entry - cs[-1]) / risk)
-    return 0.0
+        return _apply_cost(float((entry - cs[-1]) / risk))
+    return _apply_cost(0.0)
 
 
 def backtest_signals(
@@ -80,6 +110,13 @@ def backtest_signals(
     directions: np.ndarray,
     max_hold: int = MAX_HOLD_BARS,
     cooldown_bars: int = 0,
+    *,
+    sl_mult: float = SL_ATR,
+    tp_mult: float = TP_ATR,
+    slippage_points: float = 0.0,
+    spread_points: float = 0.0,
+    commission_per_lot: float = 0.0,
+    contract_size: float = DEFAULT_CONTRACT_SIZE,
 ) -> dict[str, float]:
     """directions: +1 long, -1 short, 0 flat；cooldown_bars 同方向最小间隔。"""
     atr = _atr_series(m5)
@@ -107,11 +144,33 @@ def backtest_signals(
         if a <= 0 or np.isnan(a):
             continue
         entry = float(close.iloc[idx])
+        cost_r = trade_cost_r(
+            entry,
+            a,
+            sl_mult,
+            slippage_points=slippage_points,
+            spread_points=spread_points,
+            commission_per_lot=commission_per_lot,
+            contract_size=contract_size,
+        )
         end = min(idx + 1 + max_hold, len(m5))
         hs = m5["high"].iloc[idx + 1 : end].to_numpy()
         ls = m5["low"].iloc[idx + 1 : end].to_numpy()
         cs = m5["close"].iloc[idx + 1 : end].to_numpy()
-        rs.append(simulate_trade(int(d), entry, a, hs, ls, cs, max_hold))
+        rs.append(
+            simulate_trade(
+                int(d),
+                entry,
+                a,
+                hs,
+                ls,
+                cs,
+                max_hold,
+                sl_mult=sl_mult,
+                tp_mult=tp_mult,
+                cost_r=cost_r,
+            )
+        )
         trade_times.append(t)
         if d > 0:
             last_long_idx = idx

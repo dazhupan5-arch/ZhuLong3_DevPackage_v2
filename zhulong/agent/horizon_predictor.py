@@ -73,29 +73,50 @@ class HorizonPredictor:
         scaler_path = _resolve_model_path(str(hp.get("scaler_path", "models/horizon_v16_scaler.pkl")), root)
         onnx = model_path.with_suffix(".onnx")
         load_path = onnx if onnx.is_file() else model_path
+        pth = model_path.with_suffix(".pth")
         self._calibration = _load_horizon_calibration(root, model_path)
         self._last_embedding: np.ndarray | None = None
         self._kn: KnowledgeNetInference | None = None
         self.resolved_model_path = load_path.resolve() if load_path.is_file() else model_path.resolve()
         self.resolved_scaler_path = scaler_path.resolve() if scaler_path.is_file() else None
         self.load_error: str | None = None
-        if not load_path.is_file():
-            self.load_error = f"model_missing:{load_path}"
+        if not load_path.is_file() and not pth.is_file():
+            self.load_error = f"model_missing:{model_path}"
         else:
+            import logging
+
+            log = logging.getLogger(__name__)
+            sc = scaler_path if scaler_path.is_file() else None
+            candidates: list[tuple[Path, bool]] = []
+            if load_path.is_file():
+                allow_pt = load_path.suffix.lower() in {".pth", ".pt"}
+                candidates.append((load_path, allow_pt))
+            if pth.is_file() and all(pth.resolve() != c[0].resolve() for c in candidates):
+                candidates.append((pth, True))
+            if not candidates and pth.is_file():
+                candidates.append((pth, True))
             try:
-                sc = scaler_path if scaler_path.is_file() else None
-                try:
-                    self._kn = KnowledgeNetInference(load_path, scaler_path=sc, allow_pytorch=False)
-                except TypeError:
-                    self._kn = KnowledgeNetInference(load_path, scaler_path=sc)
+                for cand, allow_pt in candidates:
+                    try:
+                        kn = KnowledgeNetInference(
+                            cand, scaler_path=sc, allow_pytorch=allow_pt
+                        )
+                    except TypeError:
+                        kn = KnowledgeNetInference(cand, scaler_path=sc)
+                    if kn is not None and kn.is_ready:
+                        self._kn = kn
+                        if allow_pt:
+                            log.warning(
+                                "Horizon 使用 PyTorch fallback: %s (ONNX 不可用)",
+                                cand,
+                            )
+                        break
                 if self._kn is None or not self._kn.is_ready:
                     kn_err = getattr(self._kn, "_onnx_load_error", None) if self._kn else None
                     self.load_error = kn_err or self.load_error or "onnx_session_not_ready"
             except Exception as ex:
-                import logging
-
                 self.load_error = f"{type(ex).__name__}:{ex}"
-                logging.getLogger(__name__).warning("Horizon model load failed: %s", ex)
+                log.warning("Horizon model load failed: %s", ex)
                 self._kn = None
 
     @property

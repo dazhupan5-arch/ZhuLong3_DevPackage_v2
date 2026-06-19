@@ -70,6 +70,7 @@ class TradingAgent:
         self.structure_service = None
         self.horizon: Any = None
         self.trader_mind: Any = None
+        self._v17_pipeline: Any = None
         self.fallback_strategy = str(config.get("fallback_strategy", "none")).lower()
         if self.arch_version == "v16":
             from zhulong.agent.horizon_predictor import HorizonPredictor
@@ -80,6 +81,11 @@ class TradingAgent:
             self.horizon = HorizonPredictor(self.root, config)
             self.trader_mind = TraderMind(config)
             logger.info("Architecture v16: Structure → Horizon → KN2 → ExecutionComposer")
+        elif self.arch_version == "v17":
+            from zhulong.agent.v17.pipeline import V17Pipeline
+
+            self._v17_pipeline = V17Pipeline(self.root, config)
+            logger.info("Architecture v17: DirectionScorer → LocationGate → ExecutionComposerV17")
 
         eg = config.get("execution_gates") or {}
         self.structure_location_gate = bool(eg.get("structure_location_gate", True))
@@ -330,7 +336,13 @@ class TradingAgent:
         return p if p.is_absolute() else self.root / p
 
     def _load_models_for(self, symbol: str) -> None:
-        if self.arch_version == "v16" and self.horizon and self.horizon.is_ready and self.horizon._kn is not None:
+        if self.arch_version == "v17" and self._v17_pipeline is not None:
+            if not self._v17_pipeline.is_ready:
+                raise RuntimeError(
+                    "V17 栈未就绪: 需要 models/direction_scorer + models/location_gate"
+                )
+            self._knowledge = None
+        elif self.arch_version == "v16" and self.horizon and self.horizon.is_ready and self.horizon._kn is not None:
             # V16：Horizon 已在 __init__ 加载 ONNX，避免重复创建 InferenceSession（冷启动可省 5–15s）
             self._knowledge = self.horizon._kn
         else:
@@ -751,7 +763,26 @@ class TradingAgent:
         v16_snapshot = None
         market_feat_kn2 = None
         kn2_dec_early: dict[str, Any] | None = None
-        if self.arch_version == "v16" and self.structure_service and self.horizon and self.trader_mind:
+        if self.arch_version == "v17" and self._v17_pipeline is not None:
+            m5s = m5.sort_index()
+            loc = m5s.index.get_loc(bar_time)
+            loc = self._m5_index_loc(m5s.index, loc)
+            v16_forecast, v16_plan, v17_meta = self._v17_pipeline.run(
+                m5s,
+                loc,
+                close=close,
+                atr=atr,
+                consecutive_losses=cons_losses,
+                causal_score=0.0,
+            )
+            struct = np.asarray(v17_meta.get("struct"), dtype=np.float32)
+            v16_snapshot = self._v17_pipeline.structure_service.snapshot_from_row(m5s, loc)
+            prob_row = np.array(v16_forecast.to_kn_probs(), dtype=np.float32)
+            emb = np.zeros(32, dtype=np.float32)
+            market_feat_kn2 = np.concatenate(
+                [struct.reshape(-1)[:30], prob_row.reshape(-1)[:3], emb.reshape(-1)[:32]]
+            ).astype(np.float32)
+        elif self.arch_version == "v16" and self.structure_service and self.horizon and self.trader_mind:
             m5s = m5.sort_index()
             loc = m5s.index.get_loc(bar_time)
             loc = self._m5_index_loc(m5s.index, loc)
@@ -816,7 +847,7 @@ class TradingAgent:
                 shock = self.causal.macro_shock_from_bar(struct)
             raw_causal_pred = self.causal.predict_price_change(shock)
             causal_pred = raw_causal_pred
-            if self.causal_fusion_weight > 0 and self.arch_version != "v16":
+            if self.causal_fusion_weight > 0 and self.arch_version not in ("v16", "v17"):
                 fused = fuse_knowledge_with_causal(
                     prob_row,
                     causal_pred,
@@ -903,7 +934,7 @@ class TradingAgent:
                 pos_dir,
             )
 
-        if v16_forecast is not None and v16_plan is not None:
+        if v16_forecast is not None and v16_plan is not None and self.arch_version in ("v16", "v17"):
             prob_row = np.array(v16_forecast.to_kn_probs(), dtype=np.float32)
             cognition_dir = v16_forecast.direction
             if not v16_plan.should_trade:
@@ -1210,7 +1241,9 @@ class TradingAgent:
             "cognition_regime": thought.regime,
             "fallback_strategy": self.fallback_strategy,
             "knowledge_ready": (
-                bool(self.horizon and self.horizon.is_ready)
+                bool(self._v17_pipeline and self._v17_pipeline.is_ready)
+                if self.arch_version == "v17"
+                else bool(self.horizon and self.horizon.is_ready)
                 if self.arch_version == "v16"
                 else self.knowledge.is_ready
             ),

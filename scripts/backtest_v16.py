@@ -68,14 +68,32 @@ def _dirs_from_struct(
     return dirs, stats
 
 
-def run_period(m5: pd.DataFrame, struct: np.ndarray, predictor: HorizonPredictor, start: str, end: str, cfg: dict) -> dict:
+def run_period(
+    m5: pd.DataFrame,
+    struct: np.ndarray,
+    predictor: HorizonPredictor,
+    start: str,
+    end: str,
+    cfg: dict,
+    *,
+    backtest_params: dict | None = None,
+) -> dict:
     sub_ix = m5.loc[start:end].index
     sub_ix = sub_ix[200:] if len(sub_ix) > 200 else sub_ix
     if len(sub_ix) < 10:
         return {"error": "too_few_bars"}
     ss = StructureService(cfg.get("structure_analyzer"))
     dirs, ps = _dirs_from_struct(m5, sub_ix, struct, predictor, ss)
-    bt = backtest_both(m5, sub_ix, dirs, max_hold=12, cooldown_bars=3, max_daily_signals=8)
+    bt_kwargs = dict(backtest_params or {})
+    bt = backtest_both(
+        m5,
+        sub_ix,
+        dirs,
+        max_hold=12,
+        cooldown_bars=3,
+        max_daily_signals=8,
+        **bt_kwargs,
+    )
     return {"forecast": ps, "backtest": bt}
 
 

@@ -434,3 +434,51 @@ def require_temporal_horizon_model(
     if meta_end and meta_end[:10] != train_end[:10] and not allow_force:
         raise ValueError(f"Horizon train_end={meta_end} 与契约 {train_end} 不一致")
     return meta
+
+
+def evaluate_rl_independent(
+    model,
+    vec_eval_env,
+    *,
+    n_episodes: int = 50,
+    unwrap_env=None,
+) -> dict[str, Any]:
+    """RL 在 OOS eval 环境上的独立评估（禁止用 Horizon OOS 回测替代）。"""
+
+    def _default_unwrap(env):
+        e = env
+        while hasattr(e, "env"):
+            e = e.env
+        return e
+
+    unwrap = unwrap_env or _default_unwrap
+    trades_all: list[dict] = []
+
+    for _ in range(max(int(n_episodes), 1)):
+        obs = vec_eval_env.reset()
+        done = False
+        while not done:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _, dones, _ = vec_eval_env.step(action)
+            done = bool(dones[0])
+        inner = unwrap(vec_eval_env.envs[0])
+        trades_all.extend(getattr(inner, "trades", []) or [])
+
+    if not trades_all:
+        return {
+            "rl_eval_win_rate": 0.0,
+            "rl_eval_trades_sampled": 0,
+            "rl_eval_source": "independent_oos",
+            "win_rate_recent": 0.0,
+            "trades_sampled": 0,
+        }
+
+    wins = sum(1 for t in trades_all if float(t.get("pnl_r", 0)) > 0)
+    win_rate = wins / len(trades_all)
+    return {
+        "rl_eval_win_rate": round(win_rate, 4),
+        "rl_eval_trades_sampled": len(trades_all),
+        "rl_eval_source": "independent_oos",
+        "win_rate_recent": round(win_rate, 4),
+        "trades_sampled": len(trades_all),
+    }

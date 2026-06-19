@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from zhulong.analysis.feature_engineering import _adx
-from zhulong.training.lgb.backtest import _atr_series, max_drawdown_r, simulate_trade
+from zhulong.training.lgb.backtest import _atr_series, max_drawdown_r, simulate_trade, trade_cost_r
 from zhulong.training.v13.trade_sim import simulate_trade_trailing
 from zhulong.training.v9.backtest import V9_COOLDOWN_BARS, V9_MAX_HOLD
 
@@ -106,6 +106,11 @@ def backtest_both(
     tp_mult: float = 2.0,
     trailing: bool = False,
     adx_min: float | None = None,
+    *,
+    slippage_points: float = 0.0,
+    spread_points: float = 0.0,
+    commission_per_lot: float = 0.0,
+    contract_size: float = 100.0,
 ) -> dict[str, float]:
     """双向回测（固定或移动止损 SL/TP）。"""
     dirs = directions.copy()
@@ -143,6 +148,15 @@ def backtest_both(
             continue
 
         entry = c
+        cost_r = trade_cost_r(
+            entry,
+            a,
+            sl_mult,
+            slippage_points=slippage_points,
+            spread_points=spread_points,
+            commission_per_lot=commission_per_lot,
+            contract_size=contract_size,
+        )
         end = min(idx + 1 + max_hold, len(m5))
         hs = m5["high"].iloc[idx + 1 : end].to_numpy()
         ls = m5["low"].iloc[idx + 1 : end].to_numpy()
@@ -152,9 +166,20 @@ def backtest_both(
                 int(d), entry, a, hs, ls, cs,
                 max_bars=max_hold, sl_mult=sl_mult, tp_mult=tp_mult, trailing=True,
             )
-            r = sim.r_multiple
+            r = sim.r_multiple - cost_r
         else:
-            r = simulate_trade(int(d), entry, a, hs, ls, cs, max_hold, sl_mult=sl_mult, tp_mult=tp_mult)
+            r = simulate_trade(
+                int(d),
+                entry,
+                a,
+                hs,
+                ls,
+                cs,
+                max_hold,
+                sl_mult=sl_mult,
+                tp_mult=tp_mult,
+                cost_r=cost_r,
+            )
         rs.append(r)
         sides.append(int(d))
         trade_times.append(t)

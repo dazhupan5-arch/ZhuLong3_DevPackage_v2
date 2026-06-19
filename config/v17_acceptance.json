@@ -1,0 +1,49 @@
+{
+  "acceptance_stage": "v17",
+  "acceptance_contract_version": "v17_strict_1",
+  "acceptance_contract_notes": "DirectionScorer回归 + LocationGate二分类 + 含成本全链路回测 + RL独立eval",
+  "direction_scorer": {
+    "model_type": "lgb_regression",
+    "threshold_30": {
+      "min_direction_accuracy": 0.62,
+      "min_coverage": 0.40
+    },
+    "threshold_35": {
+      "min_direction_accuracy": 0.65,
+      "min_coverage": 0.30
+    }
+  },
+  "location_gate": {
+    "model_type": "xgb_binary",
+    "min_val_auc": 0.58,
+    "at_threshold_60": {
+      "min_precision": 0.60,
+      "min_coverage": 0.25
+    }
+  },
+  "backtest": {
+    "cost_model": "XAUUSD_standard",
+    "min_win_rate_net": 0.60,
+    "min_win_rate_gross": 0.63,
+    "min_avg_rr": 1.5,
+    "min_trades_oos": 300,
+    "max_drawdown": 0.15
+  },
+  "rl": {
+    "eval_method": "independent_env",
+    "min_eval_win_rate": 0.58,
+    "min_eval_trades": 50,
+    "forbid_oos_fallback": true
+  },
+  "data": {
+    "train_end": "2024-12-31",
+    "oos_year": 2025,
+    "require_no_leak": true
+  },
+  "backtest_params": {
+    "slippage_points": 0.3,
+    "spread_points": 0.5,
+    "commission_per_lot": 7.0,
+    "contract_size": 100.0
+  }
+}

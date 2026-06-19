@@ -40,6 +40,12 @@
   "lockbox_march_start": "2026-03-10",
   "lockbox_march_end": "2026-03-18",
   "lockbox_june_date": "2026-06-10",
+  "backtest_params": {
+    "slippage_points": 0.3,
+    "spread_points": 0.5,
+    "commission_per_lot": 7.0,
+    "contract_size": 100.0
+  },
   "entry_location": {
     "min_long_entry_pos_median": 0.40,
     "min_short_entry_pos_median": 0.60,

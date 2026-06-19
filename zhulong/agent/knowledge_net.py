@@ -238,12 +238,16 @@ class KnowledgeNetInference:
             logger.info("KnowledgeNet ONNX 已加载: %s", path)
             return True
         except ImportError as ex:
-            raise ImportError(
-                "onnxruntime 未安装，请运行 install_python_deps.ps1"
-            ) from ex
+            self._onnx_load_error = f"ImportError:{ex}"
+            logger.warning(
+                "onnxruntime 不可用 (%s)，将尝试 PyTorch 权重 fallback",
+                ex,
+            )
+            self._onnx_session = None
+            return False
         except Exception as ex:
             self._onnx_load_error = f"{type(ex).__name__}:{ex}"
-            logger.error("KnowledgeNet ONNX 加载失败 %s: %s", path, ex)
+            logger.warning("KnowledgeNet ONNX 加载失败 %s: %s，将尝试 PyTorch fallback", path, ex)
             self._onnx_session = None
             return False
 

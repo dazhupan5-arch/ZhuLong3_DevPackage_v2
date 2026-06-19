@@ -22,6 +22,7 @@ from zhulong.agent.state_builder import STATE_DIM, StateBuilder
 from zhulong.agent.trading_env import ForcedOpenExplorationWrapper, TradingEnv
 from zhulong.agent.training_utils import (
     ensure_logs_dir,
+    evaluate_rl_independent,
     filter_npz_by_year,
     load_npz,
     load_training_config,
@@ -426,6 +427,7 @@ def main() -> int:
                     "max_drawdown": round(max_dd, 4),
                     "trades_this_episode": trades_last_ep,
                     "trades_sampled": len(recent),
+                    "rl_eval_source": "training_metrics",
                 }
                 with self.log_file.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -447,6 +449,23 @@ def main() -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     model.save(str(out))
 
+    eval_episodes = int(rl_cfg.get("eval_episodes", 50))
+    independent_eval = evaluate_rl_independent(
+        model,
+        eval_env,
+        n_episodes=eval_episodes,
+        unwrap_env=_unwrap_trading_env,
+    )
+    print(f"RL 独立 OOS 评估: {independent_eval}", flush=True)
+
+    metrics_log = ensure_logs_dir() / f"rl_metrics_{args.symbol.upper()}.jsonl"
+    final_metrics = {
+        "timesteps": int(steps),
+        **independent_eval,
+    }
+    with metrics_log.open("a", encoding="utf-8") as fh:
+        fh.write(json.dumps(final_metrics, ensure_ascii=False) + "\n")
+
     summary = {
         "symbol": args.symbol.upper(),
         "timesteps": steps,
@@ -456,6 +475,7 @@ def main() -> int:
         "architecture": "v16" if args.v16 else "legacy",
         "pipeline_contract": "v16_no_leak_1" if args.v16 else "",
         "train_through_year": train_through,
+        **independent_eval,
     }
     summary_path = ensure_logs_dir() / f"rl_{args.symbol.upper()}.json"
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")

@@ -49,6 +49,19 @@ def _load_bt_module():
     return mod
 
 
+def _backtest_kwargs(acc: dict) -> dict:
+    bp = acc.get("backtest_params") or {}
+    keys = (
+        "slippage_points",
+        "spread_points",
+        "commission_per_lot",
+        "contract_size",
+        "sl_mult",
+        "tp_mult",
+    )
+    return {k: bp[k] for k in keys if k in bp}
+
+
 def _side_ratio(long_n: int, short_n: int, max_ratio: float) -> tuple[bool, float]:
     if long_n <= 0 or short_n <= 0:
         return False, float("inf")
@@ -260,7 +273,9 @@ def _check_oos(root: Path, cfg: dict, acc: dict) -> tuple[bool, dict, list[str]]
     if not predictor.is_ready:
         failures.append("horizon_predictor_not_ready")
         return False, {}, failures
-    result = bt.run_period(m5, struct, predictor, start, end, cfg)
+    result = bt.run_period(
+        m5, struct, predictor, start, end, cfg, backtest_params=_backtest_kwargs(acc)
+    )
     if result.get("error"):
         failures.append(f"oos_{result['error']}")
         return False, result, failures
@@ -299,7 +314,7 @@ def _lockbox_march(root: Path, cfg: dict, acc: dict) -> tuple[bool, dict, list[s
     ext = m5_all.loc[pd.Timestamp(s) - pd.Timedelta(days=5) : e]
     struct = bt._struct_matrix(ext, cfg, jobs=1)
     predictor = HorizonPredictor(root, cfg)
-    result = bt.run_period(ext, struct, predictor, s, e, cfg)
+    result = bt.run_period(ext, struct, predictor, s, e, cfg, backtest_params=_backtest_kwargs(acc))
     b = result.get("backtest") or {}
     detail = {"forecast": result.get("forecast"), "backtest": b}
     if b.get("n_trades", 0) < int(acc.get("min_lockbox_march_trades", 20)):
@@ -435,6 +450,8 @@ def _check_rl(root: Path, acc: dict, oos_detail: dict | None = None) -> tuple[bo
     if not rl_zip.is_file():
         failures.append("missing_rl_model")
         return False, detail, failures
+
+    meta: dict = {}
     if rl_meta.is_file():
         meta = json.loads(rl_meta.read_text(encoding="utf-8-sig"))
         detail["rl_meta"] = meta
@@ -445,34 +462,47 @@ def _check_rl(root: Path, acc: dict, oos_detail: dict | None = None) -> tuple[bo
             failures.append("rl_knowledge_not_horizon_v16")
     else:
         failures.append("missing_rl_meta")
-    metrics_log = root / "logs" / "training" / "rl_metrics_XAUUSD.jsonl"
-    if not metrics_log.is_file():
-        metrics_log = root / "logs" / "rl_metrics_XAUUSD.jsonl"
+
     min_wr = float(acc.get("min_rl_eval_win_rate", acc.get("min_win_rate", 0.60)))
     min_sample = int(acc.get("min_rl_eval_trades_sample", 30))
-    if metrics_log.is_file():
-        lines = [ln for ln in metrics_log.read_text(encoding="utf-8").strip().splitlines() if ln.strip()]
-        rec = json.loads(lines[-1]) if lines else {}
-        detail["rl_metrics_log"] = str(metrics_log)
-        detail["rl_eval_win_rate"] = rec.get("win_rate_recent")
-        detail["rl_eval_trades_sampled"] = rec.get("trades_sampled")
-        trades_sampled = int(rec.get("trades_sampled", 0))
-        win_rate = float(rec.get("win_rate_recent", 0))
-        if trades_sampled < min_sample and oos_detail:
-            bt = oos_detail.get("backtest") or {}
-            oos_trades = int(bt.get("n_trades", 0))
-            oos_wr = float(bt.get("win_rate", 0))
-            if oos_trades >= min_sample:
-                detail["rl_eval_fallback"] = "oos_backtest"
-                detail["rl_eval_win_rate"] = oos_wr
-                detail["rl_eval_trades_sampled"] = oos_trades
-                trades_sampled = oos_trades
-                win_rate = oos_wr
-        if trades_sampled < min_sample:
-            failures.append("rl_eval_sample_too_small")
-        check_win_rate(win_rate, acc, failures, label="rl_eval", override_min=min_wr)
+    trades_sampled = 0
+    win_rate = 0.0
+    eval_source = ""
+
+    if meta.get("rl_eval_win_rate") is not None:
+        win_rate = float(meta.get("rl_eval_win_rate", 0))
+        trades_sampled = int(meta.get("rl_eval_trades_sampled", 0))
+        eval_source = str(meta.get("rl_eval_source") or "rl_meta")
+        detail["rl_eval_source"] = eval_source
+        detail["rl_eval_win_rate"] = win_rate
+        detail["rl_eval_trades_sampled"] = trades_sampled
     else:
-        failures.append("missing_rl_metrics_log")
+        metrics_log = root / "logs" / "training" / "rl_metrics_XAUUSD.jsonl"
+        if not metrics_log.is_file():
+            metrics_log = root / "logs" / "rl_metrics_XAUUSD.jsonl"
+        if metrics_log.is_file():
+            lines = [ln for ln in metrics_log.read_text(encoding="utf-8").strip().splitlines() if ln.strip()]
+            rec = json.loads(lines[-1]) if lines else {}
+            detail["rl_metrics_log"] = str(metrics_log)
+            eval_source = str(rec.get("rl_eval_source") or "metrics_log")
+            detail["rl_eval_source"] = eval_source
+            detail["rl_eval_win_rate"] = rec.get("win_rate_recent")
+            detail["rl_eval_trades_sampled"] = rec.get("trades_sampled")
+            trades_sampled = int(rec.get("trades_sampled", 0))
+            win_rate = float(rec.get("win_rate_recent", 0))
+        else:
+            failures.append("missing_rl_independent_eval")
+
+    if eval_source and eval_source == "oos_backtest":
+        failures.append("rl_eval_uses_horizon_oos_fallback")
+
+    if trades_sampled < min_sample:
+        failures.append("rl_eval_sample_too_small")
+    if win_rate > 0 or trades_sampled >= min_sample:
+        check_win_rate(win_rate, acc, failures, label="rl_eval", override_min=min_wr)
+    elif "missing_rl_independent_eval" not in failures:
+        failures.append("missing_rl_independent_eval")
+
     return len(failures) == 0, detail, failures
 
 

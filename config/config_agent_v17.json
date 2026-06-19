@@ -1,0 +1,96 @@
+{
+  "enabled": true,
+  "use_rl": true,
+  "primary_symbol": "XAUUSD",
+  "signal_expiry_minutes": 240,
+  "state_file": "data/agent_state.json",
+  "fallback_strategy": "none",
+  "architecture": {
+    "version": "v17",
+    "direction_scorer": {
+      "model_path": "models/direction_scorer/direction_scorer.lgb",
+      "model_id": "direction_scorer_v17",
+      "min_abs_score": 0.35
+    },
+    "location_gate": {
+      "model_path": "models/location_gate/location_gate.xgb",
+      "min_quality": 0.60,
+      "required": true
+    },
+    "horizon_predictor": {
+      "horizon_bars": 12,
+      "gain_threshold": 0.002,
+      "min_direction_confidence": 0.35,
+      "model_path": "models/direction_scorer/direction_scorer.lgb",
+      "model_id": "direction_scorer_v17"
+    }
+  },
+  "execution_composer_v17": {
+    "min_abs_direction": 0.35,
+    "min_location_quality": 0.60,
+    "causal_boost_weight": 0.10
+  },
+  "execution_composer": {
+    "valid_bars": 48,
+    "immediate_quality_min": 0.78,
+    "limit_quality_min": 0.45,
+    "entry_quality_position_weight": 0.70,
+    "location_score_mode": "v17"
+  },
+  "execution_gates": {
+    "structure_location_gate": true,
+    "block_ranging_conflict": true,
+    "horizon_lock_direction": false
+  },
+  "kn2": {
+    "enabled": false,
+    "shadow_mode": true,
+    "model_path": "models/kn2_trader_v16.pth",
+    "min_confidence": 0.48
+  },
+  "cognition": {
+    "enabled": true,
+    "symbol": "XAUUSD",
+    "context_bars": 36,
+    "direction_min_hold_bars": 2,
+    "regime_min_hold_bars": 2,
+    "direction_threshold": 0.35,
+    "regime_fallback_for_direction": false,
+    "regime_min_confidence_for_direction": 0.55,
+    "regime_atr_mult": 0.5,
+    "narrative_alpha": 0.2,
+    "base_confidence_threshold": 0.6,
+    "max_position_mult": 1.2,
+    "min_position_mult": 0.2,
+    "thought_log_dir": "logs/cognition"
+  },
+  "structure_analyzer": {
+    "periods": ["M5", "M15", "H1", "H4"],
+    "zigzag_atr_mult": 0.5,
+    "lookback": 200
+  },
+  "trader_mind": {
+    "max_consecutive_losses": 6,
+    "sl_atr_mult": 1.2,
+    "tp_atr_mult": 2.0,
+    "ranging_sl_atr_mult": 1.8,
+    "choppy_sl_atr_mult": 2.0,
+    "min_confidence": 0.35,
+    "valid_bars": 48
+  },
+  "trading_env": {
+    "stop_loss_atr_mult": 1.2,
+    "take_profit_atr_mult": 2.0,
+    "execution_parity": true
+  },
+  "causal": {
+    "enabled": true,
+    "fusion_weight": 0.10
+  },
+  "rl": {
+    "model_path": "models/rl_agent_xau.zip",
+    "inference": {
+      "deterministic": true
+    }
+  }
+}
