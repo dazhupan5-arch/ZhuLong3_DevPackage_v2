@@ -292,7 +292,7 @@ public static class AgentConfigSync
             foreach (var key in new[]
                      {
                          "architecture", "causal", "counterfactual", "execution_gates", "execution_composer",
-                         "trader_mind", "rl_inference", "trading_env",
+                         "execution_composer_v17", "trader_mind", "rl_inference", "trading_env",
                      })
             {
                 if (!installRoot.TryGetPropertyValue(key, out var installVal) || installVal is null)
@@ -304,6 +304,7 @@ public static class AgentConfigSync
                 }
             }
 
+            changed |= SyncArchitectureV17FromInstall(installRoot, userRoot);
             changed |= SyncKn2ContractFromInstall(installRoot, userRoot);
 
             if (!changed)
@@ -392,6 +393,34 @@ public static class AgentConfigSync
             logger?.LogWarning(ex, "同步 config_agent.json KN1 字段失败");
             return (false, false);
         }
+    }
+
+    /// <summary>
+    /// 安装包含 V17 子段时，补全 AppData architecture.direction_scorer / location_gate（避免仅升部分字段）。
+    /// </summary>
+    private static bool SyncArchitectureV17FromInstall(JsonObject installRoot, JsonObject userRoot)
+    {
+        if (!installRoot.TryGetPropertyValue("architecture", out var installArchNode) ||
+            installArchNode is not JsonObject installArch)
+            return false;
+
+        var userArch = userRoot["architecture"] as JsonObject ?? new JsonObject();
+        if (userRoot["architecture"] is null)
+            userRoot["architecture"] = userArch;
+
+        var changed = false;
+        foreach (var subKey in new[] { "version", "direction_scorer", "location_gate", "horizon_predictor" })
+        {
+            if (!installArch.TryGetPropertyValue(subKey, out var installSub) || installSub is null)
+                continue;
+            if (!JsonNodesEqual(userArch[subKey], installSub))
+            {
+                userArch[subKey] = installSub.DeepClone();
+                changed = true;
+            }
+        }
+
+        return changed;
     }
 
     private static bool SyncKn2ContractFromInstall(JsonObject installRoot, JsonObject userRoot)

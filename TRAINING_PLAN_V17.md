@@ -23,9 +23,8 @@ powershell -ExecutionPolicy Bypass -File scripts/retrain_v17.ps1 -InstallDeps
 # 阶段 4：模型通过后 RL
 py -3 scripts/train_rl_agent.py --v16 --symbol XAUUSD
 
-# 切换实盘配置（AppData 需 merge）
-# 将 config/config_agent_v17.json 合并到 %APPDATA%\ZhuLong\config_agent.json
-# architecture.version = "v17"
+# 部署 V17 配置到 AppData（merge，不覆写 enabled）
+powershell -ExecutionPolicy Bypass -File scripts/deploy_v17_agent_config.ps1
 ```
 
 ## 验收

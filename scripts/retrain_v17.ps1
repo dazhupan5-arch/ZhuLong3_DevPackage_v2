@@ -47,4 +47,7 @@ if (-not $SkipBacktest) {
 
 Write-Host "=== V17 Phase 4: RL (use train_rl_agent.py --v16 after models pass) ===" -ForegroundColor Yellow
 Write-Host "  py -3 scripts/train_rl_agent.py --v16 --symbol XAUUSD" -ForegroundColor Gray
+Write-Host ""
+Write-Host "=== V17 config merge (AppData) ===" -ForegroundColor Cyan
+Write-Host "  powershell -ExecutionPolicy Bypass -File scripts/deploy_v17_agent_config.ps1" -ForegroundColor Gray
 Write-Host "V17 retrain pipeline finished." -ForegroundColor Green

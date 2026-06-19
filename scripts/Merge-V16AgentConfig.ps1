@@ -23,6 +23,7 @@ function Merge-V16AgentConfig {
         "architecture",
         "execution_gates",
         "execution_composer",
+        "execution_composer_v17",
         "trader_mind",
         "rl_inference",
         "trading_env",
