@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Horizon V16 验证集阈值校准：在 argmax 基础上搜 flat_penalty / margin 以最大化 macro F1。"""
+"""Horizon V16 验证集阈值校准：搜 flat_scale / dir_margin / min_confidence，与实机推理一致。"""
 
 from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -18,66 +17,85 @@ import numpy as np
 import torch
 from sklearn.metrics import f1_score
 
-from zhulong.agent.knowledge_net import _knowledge_net_class, _time_split_mask
-from zhulong.agent.training_utils import load_npz, signed_to_class, TRAIN_END_DEFAULT
+from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
+from zhulong.agent.horizon_predictor import horizon_probs_to_classes
+from zhulong.agent.knowledge_net import _knowledge_net_class
+from zhulong.agent.training_utils import (
+    TRAIN_END_DEFAULT,
+    VAL_YEAR_DEFAULT,
+    load_npz,
+    signed_to_class,
+    temporal_train_val_masks,
+)
+
+MIN_MACRO_F1 = 0.50
 
 
 def _macro_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(f1_score(y_true, y_pred, average="macro", zero_division=0))
 
 
-def _predict_adj(probs: np.ndarray, flat_scale: float, dir_margin: float) -> np.ndarray:
-    """flat_scale<1 压低 flat；dir_margin 要求方向概率超过 flat+margin 才交易。"""
-    p = probs.copy()
-    p[:, 1] *= flat_scale
-    p = p / np.maximum(p.sum(axis=1, keepdims=True), 1e-9)
-    pred = np.full(len(p), 1, dtype=np.int64)
-    for i in range(len(p)):
-        ps, pf, pl = p[i]
-        best_dir = 0 if ps >= pl else 2
-        p_dir = max(ps, pl)
-        if p_dir >= pf + dir_margin:
-            pred[i] = best_dir
-        else:
-            pred[i] = 1
-    return pred
+def _default_min_confidence(root: Path) -> float:
+    cfg_path = root / "config" / "config_agent.json"
+    if not cfg_path.is_file():
+        return 0.42
+    try:
+        cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+        hp = (cfg.get("architecture") or {}).get("horizon_predictor") or {}
+        return float(hp.get("min_direction_confidence", 0.42))
+    except Exception:
+        return 0.42
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", default="models/horizon_v16.pth")
     parser.add_argument("--scaler", default="models/horizon_v16_scaler.pkl")
-    parser.add_argument("--npz", default="data/clean/training_horizon_v16.npz")
-    parser.add_argument("--target-f1", type=float, default=0.45)
+    parser.add_argument("--npz", default="data/clean/training_horizon_v16_location.npz")
+    parser.add_argument("--target-f1", type=float, default=MIN_MACRO_F1)
+    parser.add_argument(
+        "--label-mode",
+        default="location",
+        choices=("auto", "legacy", "location"),
+        help="须与 train_horizon_v16.py 一致（retrain 默认 location）",
+    )
     parser.add_argument(
         "--temporal-val",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="默认：train<=train-end, val=之后",
+        help="默认：val=val_year 全年 OOS（与 accept_horizon_v16 测试集一致）",
     )
     parser.add_argument("--train-end", default=TRAIN_END_DEFAULT)
-    parser.add_argument("--val-ratio", type=float, default=0.15)
-    parser.add_argument("--apply", action="store_true", help="写入 meta 校准参数")
+    parser.add_argument("--val-year", type=int, default=VAL_YEAR_DEFAULT)
+    parser.add_argument("--apply", action="store_true", help="写入 meta 校准参数（不修改 passed）")
     args = parser.parse_args()
 
     model_path = _ROOT / args.model
     scaler_path = _ROOT / args.scaler
     npz_path = _ROOT / args.npz
     meta_path = model_path.with_suffix(".meta.json")
-    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+    meta = json.loads(meta_path.read_text(encoding="utf-8-sig")) if meta_path.is_file() else {}
 
     data = load_npz(npz_path)
     x = np.asarray(data["struct"], dtype=np.float32)
-    y = signed_to_class(data["labels"])
+    y_signed, label_version = resolve_horizon_training_labels(data, label_mode=args.label_mode)
+    y = signed_to_class(y_signed)
     times = data.get("time")
 
-    if args.temporal_val and times is not None:
-        train_mask, val_mask = _time_split_mask(np.asarray(times), args.train_end)
-    elif args.temporal_val:
+    if not args.temporal_val:
+        print("ERROR: --no-temporal-val 已禁用")
+        return 1
+    if times is None:
         print("ERROR: --temporal-val 需要 NPZ 含 time 列")
         return 1
-    else:
-        print("ERROR: --no-temporal-val 已禁用")
+
+    _, val_mask = temporal_train_val_masks(
+        np.asarray(times),
+        train_end=args.train_end,
+        val_year=int(args.val_year),
+    )
+    if int(val_mask.sum()) < 500:
+        print(f"ERROR: OOS val 样本不足 n={int(val_mask.sum())} val_year={args.val_year}")
         return 1
 
     x_va = x[val_mask]
@@ -100,36 +118,57 @@ def main() -> int:
         logits, _, _ = model(torch.tensor(x_va, device=device))
         probs = torch.softmax(logits, dim=1).cpu().numpy()
 
-    base_pred = probs.argmax(axis=1)
+    base_conf = _default_min_confidence(_ROOT)
+    base_pred = horizon_probs_to_classes(probs, min_confidence=base_conf)
     base_f1 = _macro_f1(y_va, base_pred)
-    print(f"baseline argmax f1={base_f1:.4f} n_val={len(y_va)}")
+    print(
+        f"baseline runtime-rule f1={base_f1:.4f} n_val={len(y_va)} "
+        f"val_year={args.val_year} label={label_version}"
+    )
 
     best_f1 = base_f1
-    best = {"flat_scale": 1.0, "dir_margin": 0.0, "macro_f1": base_f1}
+    best = {
+        "flat_scale": 1.0,
+        "dir_margin": 0.0,
+        "min_confidence": round(base_conf, 3),
+        "macro_f1": round(base_f1, 6),
+    }
 
-    for flat_scale in np.arange(0.75, 1.05, 0.05):
-        for dir_margin in np.arange(0.0, 0.12, 0.01):
-            pred = _predict_adj(probs, float(flat_scale), float(dir_margin))
-            f1 = _macro_f1(y_va, pred)
-            if f1 > best_f1:
-                best_f1 = f1
-                best = {
-                    "flat_scale": round(float(flat_scale), 3),
-                    "dir_margin": round(float(dir_margin), 3),
-                    "macro_f1": round(f1, 6),
-                }
+    for min_conf in np.arange(0.36, 0.54, 0.02):
+        for flat_scale in np.arange(0.75, 1.20, 0.05):
+            for dir_margin in np.arange(0.0, 0.12, 0.01):
+                pred = horizon_probs_to_classes(
+                    probs,
+                    min_confidence=float(min_conf),
+                    flat_scale=float(flat_scale),
+                    dir_margin=float(dir_margin),
+                )
+                f1 = _macro_f1(y_va, pred)
+                if f1 > best_f1:
+                    best_f1 = f1
+                    best = {
+                        "flat_scale": round(float(flat_scale), 3),
+                        "dir_margin": round(float(dir_margin), 3),
+                        "min_confidence": round(float(min_conf), 3),
+                        "macro_f1": round(f1, 6),
+                    }
 
     print(json.dumps({"baseline_f1": base_f1, "best": best, "target_f1": args.target_f1}, indent=2))
 
     if args.apply and best_f1 >= base_f1:
         meta["calibration"] = best
         meta["macro_f1"] = best_f1
-        meta["macro_f1_raw_argmax"] = base_f1
-        meta["passed"] = best_f1 >= args.target_f1
+        meta["macro_f1_raw_argmax"] = float(_macro_f1(y_va, probs.argmax(axis=1)))
+        meta["calibration_val_year"] = int(args.val_year)
+        meta["label_mode"] = args.label_mode
+        meta["label_version"] = label_version
+        meta["passed"] = False
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
-        print(f"Updated {meta_path}")
+        print(f"Updated {meta_path} (passed=false until accept_horizon_v16 --apply)")
 
-    return 0 if best_f1 >= args.target_f1 else 2
+    ok = best_f1 >= args.target_f1
+    print("PASS" if ok else f"FAIL: macro_f1 {best_f1:.4f} < target {args.target_f1}")
+    return 0 if ok else 2
 
 
 if __name__ == "__main__":

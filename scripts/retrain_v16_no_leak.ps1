@@ -115,9 +115,13 @@ if (-not $SkipHorizon) {
     py -3 scripts/calibrate_horizon_v16.py `
         --temporal-val `
         --train-end $TrainEnd `
+        --val-year $ValYear `
+        --label-mode location `
+        --target-f1 0.50 `
         --apply `
         --npz $HorizonLocNpz `
         2>&1 | Tee-Object -FilePath (Join-Path $LogDir "04_horizon_cal_$Ts.log")
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     Write-Step "导出 Horizon ONNX"
     py -3 scripts/convert_knowledge_net_to_onnx.py `

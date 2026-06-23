@@ -12,6 +12,36 @@ from zhulong.agent.rl_agent import _resolve_model_path
 from zhulong.agent.tick_brief import HorizonForecast, StructureSnapshot
 
 
+_DIRECTION_TO_CLASS = {"short": 0, "flat": 1, "long": 2}
+
+
+def horizon_probs_to_classes(
+    probs: np.ndarray,
+    *,
+    min_confidence: float = 0.42,
+    flat_scale: float = 1.0,
+    dir_margin: float = 0.0,
+) -> np.ndarray:
+    """ONNX 概率 → 三分类索引（short=0, flat=1, long=2），与实机 HorizonPredictor 一致。"""
+    arr = np.asarray(probs, dtype=np.float64)
+    if arr.ndim == 1:
+        arr = arr.reshape(1, -1)
+    out = np.ones(len(arr), dtype=np.int64)
+    for i, row in enumerate(arr):
+        if row.size < 3:
+            continue
+        direction, _, _, _ = direction_from_probs(
+            float(row[0]),
+            float(row[1]),
+            float(row[2]),
+            min_confidence=min_confidence,
+            flat_scale=flat_scale,
+            dir_margin=dir_margin,
+        )
+        out[i] = _DIRECTION_TO_CLASS.get(direction, 1)
+    return out
+
+
 def direction_from_probs(
     short_p: float,
     flat_p: float,
@@ -47,10 +77,13 @@ def _load_horizon_calibration(root: Path, model_path: Path) -> dict[str, float]:
 
         meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
         cal = meta.get("calibration") or {}
-        return {
+        out = {
             "flat_scale": float(cal.get("flat_scale", 1.0)),
             "dir_margin": float(cal.get("dir_margin", 0.0)),
         }
+        if "min_confidence" in cal:
+            out["min_confidence"] = float(cal["min_confidence"])
+        return out
     except Exception:
         return {}
 
@@ -73,50 +106,29 @@ class HorizonPredictor:
         scaler_path = _resolve_model_path(str(hp.get("scaler_path", "models/horizon_v16_scaler.pkl")), root)
         onnx = model_path.with_suffix(".onnx")
         load_path = onnx if onnx.is_file() else model_path
-        pth = model_path.with_suffix(".pth")
         self._calibration = _load_horizon_calibration(root, model_path)
         self._last_embedding: np.ndarray | None = None
         self._kn: KnowledgeNetInference | None = None
         self.resolved_model_path = load_path.resolve() if load_path.is_file() else model_path.resolve()
         self.resolved_scaler_path = scaler_path.resolve() if scaler_path.is_file() else None
         self.load_error: str | None = None
-        if not load_path.is_file() and not pth.is_file():
-            self.load_error = f"model_missing:{model_path}"
+        if not load_path.is_file():
+            self.load_error = f"model_missing:{load_path}"
         else:
-            import logging
-
-            log = logging.getLogger(__name__)
-            sc = scaler_path if scaler_path.is_file() else None
-            candidates: list[tuple[Path, bool]] = []
-            if load_path.is_file():
-                allow_pt = load_path.suffix.lower() in {".pth", ".pt"}
-                candidates.append((load_path, allow_pt))
-            if pth.is_file() and all(pth.resolve() != c[0].resolve() for c in candidates):
-                candidates.append((pth, True))
-            if not candidates and pth.is_file():
-                candidates.append((pth, True))
             try:
-                for cand, allow_pt in candidates:
-                    try:
-                        kn = KnowledgeNetInference(
-                            cand, scaler_path=sc, allow_pytorch=allow_pt
-                        )
-                    except TypeError:
-                        kn = KnowledgeNetInference(cand, scaler_path=sc)
-                    if kn is not None and kn.is_ready:
-                        self._kn = kn
-                        if allow_pt:
-                            log.warning(
-                                "Horizon 使用 PyTorch fallback: %s (ONNX 不可用)",
-                                cand,
-                            )
-                        break
+                sc = scaler_path if scaler_path.is_file() else None
+                try:
+                    self._kn = KnowledgeNetInference(load_path, scaler_path=sc, allow_pytorch=False)
+                except TypeError:
+                    self._kn = KnowledgeNetInference(load_path, scaler_path=sc)
                 if self._kn is None or not self._kn.is_ready:
                     kn_err = getattr(self._kn, "_onnx_load_error", None) if self._kn else None
                     self.load_error = kn_err or self.load_error or "onnx_session_not_ready"
             except Exception as ex:
+                import logging
+
                 self.load_error = f"{type(ex).__name__}:{ex}"
-                log.warning("Horizon model load failed: %s", ex)
+                logging.getLogger(__name__).warning("Horizon model load failed: %s", ex)
                 self._kn = None
 
     @property
@@ -140,11 +152,12 @@ class HorizonPredictor:
             short_p, flat_p, long_p = self._heuristic(snapshot)
             self._last_embedding = np.zeros(32, dtype=np.float32)
 
+        min_conf = float(self._calibration.get("min_confidence", self.min_confidence))
         direction, pu, pd, pf = direction_from_probs(
             short_p,
             flat_p,
             long_p,
-            min_confidence=self.min_confidence,
+            min_confidence=min_conf,
             flat_scale=self._calibration.get("flat_scale", 1.0),
             dir_margin=self._calibration.get("dir_margin", 0.0),
         )

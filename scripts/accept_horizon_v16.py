@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 
 from zhulong.agent.horizon_location_labels import resolve_horizon_training_labels
-from zhulong.agent.horizon_predictor import HorizonPredictor, direction_from_probs
+from zhulong.agent.horizon_predictor import HorizonPredictor, direction_from_probs, horizon_probs_to_classes
 from zhulong.agent.knowledge_net import KnowledgeNetInference
 from zhulong.agent.structure_service import StructureService
 from zhulong.agent.training_utils import load_npz, signed_to_class, temporal_train_val_masks, TRAIN_END_DEFAULT, VAL_YEAR_DEFAULT
@@ -97,23 +97,49 @@ def _check_training(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
     return len(failures) == 0, detail, failures
 
 
+def _horizon_calibration_params(root: Path, cfg: dict) -> dict[str, float]:
+    hp = (cfg.get("architecture") or {}).get("horizon_predictor") or {}
+    params = {
+        "min_confidence": float(hp.get("min_direction_confidence", 0.42)),
+        "flat_scale": 1.0,
+        "dir_margin": 0.0,
+    }
+    meta_path = root / "models" / "horizon_v16.meta.json"
+    if meta_path.is_file():
+        meta = json.loads(meta_path.read_text(encoding="utf-8-sig"))
+        cal = meta.get("calibration") or {}
+        params["flat_scale"] = float(cal.get("flat_scale", params["flat_scale"]))
+        params["dir_margin"] = float(cal.get("dir_margin", params["dir_margin"]))
+        if "min_confidence" in cal:
+            params["min_confidence"] = float(cal["min_confidence"])
+    return params
+
+
 def _predict_horizon_on_indices(
     kn: KnowledgeNetInference,
     struct: np.ndarray,
     idx: np.ndarray,
+    *,
+    calibration: dict[str, float],
 ) -> np.ndarray:
     y_pred = np.zeros(len(idx), dtype=np.int64)
     chunk = 4096
     for start in range(0, len(idx), chunk):
         sel = idx[start : start + chunk]
         probs, _ = kn.predict(struct[sel])
-        y_pred[start : start + len(sel)] = np.argmax(probs, axis=1)
+        y_pred[start : start + len(sel)] = horizon_probs_to_classes(
+            probs,
+            min_confidence=calibration["min_confidence"],
+            flat_scale=calibration["flat_scale"],
+            dir_margin=calibration["dir_margin"],
+        )
     return y_pred
 
 
 def _eval_horizon_classification_split(
     root: Path,
     acc: dict,
+    cfg: dict,
     *,
     split: str,
 ) -> tuple[dict[str, Any], list[str]]:
@@ -148,6 +174,7 @@ def _eval_horizon_classification_split(
         failures.append(f"horizon_onnx_not_ready_for_{split}")
         return {}, failures
 
+    calibration = _horizon_calibration_params(root, cfg)
     idx = np.where(mask)[0]
     max_key = (
         "max_train_classification_bars"
@@ -159,19 +186,19 @@ def _eval_horizon_classification_split(
         step = max(1, len(idx) // max_bars)
         idx = idx[::step][:max_bars]
 
-    y_pred = _predict_horizon_on_indices(kn, struct, idx)
+    y_pred = _predict_horizon_on_indices(kn, struct, idx, calibration=calibration)
     metrics = classification_report(y_true[idx], y_pred)
     if split == "test":
         apply_classification_thresholds(metrics, acc, failures, prefix="test")
     return metrics, failures
 
 
-def _check_classification_splits(root: Path, acc: dict) -> tuple[bool, dict, list[str]]:
+def _check_classification_splits(root: Path, acc: dict, cfg: dict) -> tuple[bool, dict, list[str]]:
     """训练集+测试集 macro F1 均>0.5；禁止 train 高 test 低；测试集 long/short P/R>=80%。"""
     failures: list[str] = []
     detail: dict = {}
-    train_metrics, train_fails = _eval_horizon_classification_split(root, acc, split="train")
-    test_metrics, test_fails = _eval_horizon_classification_split(root, acc, split="test")
+    train_metrics, train_fails = _eval_horizon_classification_split(root, acc, cfg, split="train")
+    test_metrics, test_fails = _eval_horizon_classification_split(root, acc, cfg, split="test")
     failures.extend(train_fails)
     failures.extend(test_fails)
     if not train_metrics or not test_metrics:
@@ -595,7 +622,7 @@ def main() -> int:
     core_checks = (
         ("leak_contract", lambda: _check_leak_contract(root, acc)),
         ("training", lambda: _check_training(root, acc)),
-        ("classification_splits", lambda: _check_classification_splits(root, acc)),
+        ("classification_splits", lambda: _check_classification_splits(root, acc, cfg)),
         ("onnx", lambda: _check_onnx(root, cfg, acc)),
     )
     extended_checks = (
